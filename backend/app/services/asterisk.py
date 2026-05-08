@@ -119,7 +119,6 @@ class AsteriskAmiClient:
         ) as sock:
             sock.settimeout(self.timeout)
             buffer = ""
-            buffer, _banner = self._read_packet(sock, buffer)
 
             login_action_id = f"login-{uuid.uuid4().hex}"
             self._send_action(
