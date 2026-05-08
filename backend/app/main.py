@@ -15,6 +15,7 @@ from app.api import (
     phone_blacklists,
     sip_peer_whitelists,
     sip_trunks,
+    system,
 )
 from app.core.config import settings
 from app.db import Base, SessionLocal, engine
@@ -58,6 +59,7 @@ app.include_router(outbound_calls.router, prefix="/api/outbound-calls", tags=["o
 app.include_router(phone_blacklists.router, prefix="/api/phone-blacklists", tags=["phone-blacklists"])
 app.include_router(call_recordings.router, prefix="/api/call-recordings", tags=["call-recordings"])
 app.include_router(audit_logs.router, prefix="/api/audit-logs", tags=["audit-logs"])
+app.include_router(system.router, prefix="/api/system", tags=["system"])
 
 
 @app.get("/")

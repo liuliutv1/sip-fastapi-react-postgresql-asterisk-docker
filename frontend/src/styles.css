@@ -520,6 +520,117 @@ button:disabled {
   word-break: break-word;
 }
 
+.system-check {
+  align-self: start;
+}
+
+.system-check__header {
+  align-items: flex-start;
+}
+
+.system-check__header div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.system-check__header p {
+  color: #617085;
+  line-height: 1.45;
+}
+
+.system-check__summary {
+  align-items: center;
+  border-bottom: 1px solid #edf1f6;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 18px;
+}
+
+.system-check__summary span,
+.system-check__summary time {
+  background: #f5f7fa;
+  border: 1px solid #e4e9f1;
+  border-radius: 999px;
+  color: #475467;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 5px 10px;
+}
+
+.system-check__summary time {
+  margin-left: auto;
+}
+
+.system-check__results {
+  display: grid;
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.system-check__item {
+  align-items: flex-start;
+  border-bottom: 1px solid #edf1f6;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  padding: 16px 18px;
+}
+
+.system-check__item:last-child {
+  border-bottom: 0;
+}
+
+.system-check__icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.system-check__title {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  min-width: 0;
+}
+
+.system-check__title strong {
+  color: #18202d;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.system-check__title span {
+  border-radius: 999px;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 8px;
+}
+
+.system-check__item--ok .system-check__title span {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.system-check__item--warn .system-check__title span {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.system-check__item--fail .system-check__title span {
+  background: #fee4e2;
+  color: #b42318;
+}
+
+.system-check__item p {
+  color: #475467;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -548,6 +659,10 @@ button:disabled {
   .content-grid,
   .management-grid {
     grid-template-columns: 1fr;
+  }
+
+  .system-check__summary time {
+    margin-left: 0;
   }
 }
 

@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import SystemCheck from "./SystemCheck";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
 const TOKEN_STORAGE_KEY = "sipcc_access_token";
@@ -627,6 +628,9 @@ function App() {
           <NavButton active={activeView === "audit"} onClick={() => setActiveView("audit")}>
             审计日志
           </NavButton>
+          <NavButton active={activeView === "system-check"} onClick={() => setActiveView("system-check")}>
+            系统自检
+          </NavButton>
         </nav>
       </aside>
 
@@ -704,6 +708,7 @@ function App() {
             deleteWhitelist,
           })}
         {activeView === "audit" && renderAuditLogs(auditLogs)}
+        {activeView === "system-check" && <SystemCheck apiBaseUrl={API_BASE_URL} token={token} />}
       </section>
     </main>
   );

@@ -98,6 +98,20 @@ class AsteriskAmiClient:
             }
         )
 
+    def command(self, command: str) -> str:
+        response = self._request(
+            {
+                "Action": "Command",
+                "ActionID": f"command-{uuid.uuid4().hex}",
+                "Command": command,
+            }
+        )
+        if isinstance(response, list):
+            output = "\n".join(packet.get("Output", "") for packet in response)
+        else:
+            output = response.get("Output", "")
+        return "\n".join(line for line in output.splitlines() if line.strip() != "--END COMMAND--")
+
     def _request(self, fields: dict[str, str], complete_event: str | None = None) -> dict[str, str] | list[dict[str, str]]:
         with socket.create_connection(
             (settings.asterisk_ami_host, settings.asterisk_ami_port),
@@ -180,7 +194,12 @@ class AsteriskAmiClient:
                 packet.setdefault("Banner", line)
                 continue
             key, value = line.split(":", 1)
-            packet[key.strip()] = value.strip()
+            key = key.strip()
+            value = value.strip()
+            if key in packet:
+                packet[key] = f"{packet[key]}\n{value}"
+            else:
+                packet[key] = value
         return buffer, packet
 
     def _send_action(self, sock: socket.socket, fields: dict[str, str]) -> None:
@@ -188,7 +207,7 @@ class AsteriskAmiClient:
         sock.sendall(f"{payload}\r\n".encode("utf-8"))
 
     def _ensure_success(self, response: dict[str, str], message: str) -> None:
-        if response.get("Response", "").lower() != "success":
+        if response.get("Response", "").lower() not in {"success", "follows"}:
             detail = response.get("Message") or response.get("Response") or "unknown AMI error"
             raise AmiError(f"{message}: {detail}")
 

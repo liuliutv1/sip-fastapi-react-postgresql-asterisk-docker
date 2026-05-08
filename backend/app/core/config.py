@@ -15,11 +15,17 @@ class Settings(BaseSettings):
     admin_password: str = "admin123456"
     sip_password_encryption_key: str = "change-me-sip-password-encryption-key"
 
+    asterisk_sip_port: int = 5060
+    asterisk_rtp_start: int = 10000
+    asterisk_rtp_end: int = 10020
     asterisk_ami_host: str = "asterisk"
     asterisk_ami_port: int = 5038
     asterisk_ami_username: str = "callcenter"
     asterisk_ami_password: str = "callcenter"
     asterisk_originate_timeout_ms: int = 30000
+    sip_vendor_ip: str = "218.245.102.33"
+    sip_vendor_port: int = 6876
+    sip_trunk_name: str = "outbound-trunk"
     manual_outbound_rate_limit_count: int = 5
     manual_outbound_rate_limit_window_seconds: int = 60
     recordings_local_dir: str = "/recordings"
