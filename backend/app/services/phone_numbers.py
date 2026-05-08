@@ -1,6 +1,6 @@
 import re
 
-PHONE_NUMBER_PATTERN = re.compile(r"^\+?[1-9]\d{5,18}$")
+PHONE_NUMBER_PATTERN = re.compile(r"^(?:\+?[1-9]\d{5,18}|0\d{6,18})$")
 
 
 def normalize_phone_number(value: str) -> str:
