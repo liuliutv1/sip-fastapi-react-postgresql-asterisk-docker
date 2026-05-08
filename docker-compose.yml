@@ -87,8 +87,8 @@ services:
       retries: 5
 
   asterisk:
-    build:
-      context: ./asterisk
+    image: ${ASTERISK_IMAGE:-asterisk/asterisk:20}
+    pull_policy: missing
     container_name: sipcc-asterisk
     restart: unless-stopped
     ports:
@@ -96,6 +96,7 @@ services:
       - "${ASTERISK_AMI_PUBLIC_PORT:-5038}:5038/tcp"
       - "${ASTERISK_RTP_START:-10000}-${ASTERISK_RTP_END:-10020}:10000-10020/udp"
     volumes:
+      - ./asterisk/config:/etc/asterisk:ro
       - ./recordings:/recordings
     healthcheck:
       test: ["CMD", "asterisk", "-rx", "core show uptime"]
