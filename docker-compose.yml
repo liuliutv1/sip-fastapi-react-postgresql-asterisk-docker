@@ -1,0 +1,120 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sipcc-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-callcenter}
+      POSTGRES_USER: ${POSTGRES_USER:-callcenter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-callcenter}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-callcenter} -d ${POSTGRES_DB:-callcenter}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    container_name: sipcc-backend
+    restart: unless-stopped
+    environment:
+      APP_NAME: ${APP_NAME:-Mini SIP Outbound Call Center}
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://callcenter:callcenter@postgres:5432/callcenter}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:8080}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      SIP_PASSWORD_ENCRYPTION_KEY: ${SIP_PASSWORD_ENCRYPTION_KEY:-change-me-sip-password-encryption-key}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123456}
+      ASTERISK_AMI_HOST: ${ASTERISK_AMI_HOST:-asterisk}
+      ASTERISK_AMI_PORT: ${ASTERISK_AMI_PORT:-5038}
+      ASTERISK_AMI_USERNAME: ${ASTERISK_AMI_USERNAME:-callcenter}
+      ASTERISK_AMI_PASSWORD: ${ASTERISK_AMI_PASSWORD:-callcenter}
+      ASTERISK_ORIGINATE_TIMEOUT_MS: ${ASTERISK_ORIGINATE_TIMEOUT_MS:-30000}
+      MANUAL_OUTBOUND_RATE_LIMIT_COUNT: ${MANUAL_OUTBOUND_RATE_LIMIT_COUNT:-5}
+      MANUAL_OUTBOUND_RATE_LIMIT_WINDOW_SECONDS: ${MANUAL_OUTBOUND_RATE_LIMIT_WINDOW_SECONDS:-60}
+      RECORDINGS_LOCAL_DIR: ${RECORDINGS_LOCAL_DIR:-/recordings}
+      ASTERISK_RECORDINGS_DIR: ${ASTERISK_RECORDINGS_DIR:-/recordings}
+      RECORDINGS_STORAGE_BACKEND: ${RECORDINGS_STORAGE_BACKEND:-local}
+      RECORDING_RETENTION_DAYS: ${RECORDING_RETENTION_DAYS:-90}
+      ALIYUN_OSS_ENDPOINT: ${ALIYUN_OSS_ENDPOINT:-}
+      ALIYUN_OSS_BUCKET: ${ALIYUN_OSS_BUCKET:-}
+      ALIYUN_OSS_ACCESS_KEY_ID: ${ALIYUN_OSS_ACCESS_KEY_ID:-}
+      ALIYUN_OSS_ACCESS_KEY_SECRET: ${ALIYUN_OSS_ACCESS_KEY_SECRET:-}
+      ALIYUN_OSS_PREFIX: ${ALIYUN_OSS_PREFIX:-sip-call-recordings}
+      ALIYUN_OSS_SIGNED_URL_EXPIRE_SECONDS: ${ALIYUN_OSS_SIGNED_URL_EXPIRE_SECONDS:-300}
+    volumes:
+      - ./recordings:/recordings
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      asterisk:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+    container_name: sipcc-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  asterisk:
+    build:
+      context: ./asterisk
+    container_name: sipcc-asterisk
+    restart: unless-stopped
+    ports:
+      - "${ASTERISK_SIP_PORT:-5060}:5060/udp"
+      - "${ASTERISK_AMI_PUBLIC_PORT:-5038}:5038/tcp"
+      - "${ASTERISK_RTP_START:-10000}-${ASTERISK_RTP_END:-10020}:10000-10020/udp"
+    volumes:
+      - ./recordings:/recordings
+    healthcheck:
+      test: ["CMD", "asterisk", "-rx", "core show uptime"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: sipcc-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-8080}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      backend:
+        condition: service_started
+      frontend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
