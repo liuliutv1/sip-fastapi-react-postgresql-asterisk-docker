@@ -96,7 +96,11 @@ services:
       - "${ASTERISK_AMI_PUBLIC_PORT:-5038}:5038/tcp"
       - "${ASTERISK_RTP_START:-10000}-${ASTERISK_RTP_END:-10020}:10000-10020/udp"
     volumes:
-      - ./asterisk/config:/etc/asterisk:ro
+      - ./asterisk/config/extensions.conf:/etc/asterisk/extensions.conf:ro
+      - ./asterisk/config/logger.conf:/etc/asterisk/logger.conf:ro
+      - ./asterisk/config/manager.conf:/etc/asterisk/manager.conf:ro
+      - ./asterisk/config/pjsip.conf:/etc/asterisk/pjsip.conf:ro
+      - ./asterisk/config/rtp.conf:/etc/asterisk/rtp.conf:ro
       - ./recordings:/recordings
     healthcheck:
       test: ["CMD", "asterisk", "-rx", "core show uptime"]
