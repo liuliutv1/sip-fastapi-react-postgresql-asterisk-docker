@@ -18,6 +18,7 @@ from app.api import (
     system,
 )
 from app.core.config import settings
+from app.core.monitoring import ApiLoggingMiddleware, configure_logging, init_sentry
 from app.db import Base, SessionLocal, engine
 from app.services.ami_event_listener import ami_hangup_event_listener
 from app.services.call_lifecycle import expire_stale_active_calls
@@ -26,6 +27,9 @@ from app.services.schema_migrations import ensure_runtime_schema
 from app.services.trunk_health import sip_trunk_health_monitor
 from app.services.users import ensure_default_admin
 from app import models  # noqa: F401
+
+configure_logging()
+init_sentry()
 
 
 @asynccontextmanager
@@ -51,6 +55,8 @@ app = FastAPI(
     version=settings.app_version,
     lifespan=lifespan,
 )
+
+app.add_middleware(ApiLoggingMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

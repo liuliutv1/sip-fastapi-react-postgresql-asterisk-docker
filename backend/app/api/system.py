@@ -1,4 +1,6 @@
 import socket
+import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.exc import SQLAlchemyError
@@ -10,6 +12,9 @@ from app.core.config import settings
 from app.db import get_db
 from app.services.asterisk import AmiError, AsteriskAmiClient
 from app.services.audit import record_audit_log
+from app.services.call_lifecycle import ACTIVE_CALL_STATUSES, expire_stale_active_calls
+from app.services.deployment_validation import DeploymentValidationReport, run_deployment_validation
+from app.services.recording_storage import ensure_recording_dir
 
 router = APIRouter()
 
@@ -68,6 +73,16 @@ def run_system_check(
         results.append(_result("Asterisk 服务状态", "fail", f"Asterisk AMI 连接失败：{exc}"))
         _record_system_check_audit(db, request, current_user, results)
         return results
+
+    results.append(_result("系统版本", "ok", f"当前后端版本 {settings.app_version}"))
+    expired_count = expire_stale_active_calls(db)
+    if expired_count:
+        results.append(_result("历史占用呼叫", "warn", f"已自动结束 {expired_count} 条超时未接通呼叫，避免继续占用号码或线路"))
+    else:
+        results.append(_active_call_result(db, current_user))
+
+    results.append(_recording_dir_result())
+    results.append(_duplicate_trunk_result(db))
 
     try:
         transports = _ami_command("pjsip show transports")
@@ -151,6 +166,63 @@ def run_system_check(
 
     _record_system_check_audit(db, request, current_user, results)
     return results
+
+
+@router.post("/validate-deployment", response_model=DeploymentValidationReport)
+def validate_deployment(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.AppUser = Depends(get_current_user),
+) -> DeploymentValidationReport:
+    report = run_deployment_validation(db)
+    _record_system_check_audit(
+        db,
+        request,
+        current_user,
+        [{"item": check.item, "status": check.status, "msg": check.msg} for check in report.checks],
+    )
+    return report
+
+
+def _active_call_result(db: Session, current_user: models.AppUser) -> dict[str, str]:
+    query = db.query(models.OutboundCall).filter(models.OutboundCall.status.in_(ACTIVE_CALL_STATUSES))
+    if not current_user.is_admin:
+        query = query.filter(models.OutboundCall.user_id == current_user.id)
+    active_count = query.count()
+    if active_count:
+        return _result("进行中呼叫锁", "warn", f"当前有 {active_count} 条进行中呼叫；同一号码会被阻止重复外呼")
+    return _result("进行中呼叫锁", "ok", "当前没有历史任务占用号码")
+
+
+def _recording_dir_result() -> dict[str, str]:
+    try:
+        ensure_recording_dir()
+        root = Path(settings.recordings_local_dir)
+        probe = root / f".write-test-{uuid.uuid4().hex}"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+    except Exception as exc:
+        return _result("录音目录权限", "fail", f"后端无法写入录音目录 {settings.recordings_local_dir}：{exc}")
+    return _result("录音目录权限", "ok", f"后端可写入录音目录 {settings.recordings_local_dir}")
+
+
+def _duplicate_trunk_result(db: Session) -> dict[str, str]:
+    trunks = (
+        db.query(models.SipTrunk)
+        .filter(
+            models.SipTrunk.host == settings.sip_vendor_ip,
+            models.SipTrunk.port == settings.sip_vendor_port,
+            models.SipTrunk.enabled.is_(True),
+        )
+        .order_by(models.SipTrunk.id.asc())
+        .all()
+    )
+    if not trunks:
+        return _result("供应商线路数量", "fail", f"没有启用的线路指向供应商 {settings.sip_vendor_ip}:{settings.sip_vendor_port}")
+    if len(trunks) > 1:
+        names = "、".join(trunk.name for trunk in trunks[:5])
+        return _result("供应商线路数量", "warn", f"发现 {len(trunks)} 条启用线路指向同一供应商：{names}；系统已按真实 Asterisk endpoint 去重，建议生产时只保留一条启用线路")
+    return _result("供应商线路数量", "ok", f"已启用唯一供应商线路：{trunks[0].name}")
 
 
 def _find_configured_trunk(db: Session) -> models.SipTrunk | None:

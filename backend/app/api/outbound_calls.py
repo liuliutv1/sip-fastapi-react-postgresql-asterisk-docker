@@ -36,10 +36,15 @@ def list_outbound_calls(
     db: Session = Depends(get_db),
     current_user: models.AppUser = Depends(get_current_user),
 ):
+    changed = expire_stale_active_calls(db) > 0
     query = db.query(models.OutboundCall)
     if not current_user.is_admin:
         query = query.filter(models.OutboundCall.user_id == current_user.id)
-    return query.order_by(models.OutboundCall.id.desc()).limit(min(max(limit, 1), 500)).all()
+    calls = query.order_by(models.OutboundCall.id.desc()).limit(min(max(limit, 1), 500)).all()
+    changed = _sync_active_calls_for_list(db, calls) or changed
+    if changed:
+        db.commit()
+    return calls
 
 
 @router.post("", response_model=schemas.OutboundCallRead, status_code=status.HTTP_201_CREATED)
@@ -258,6 +263,33 @@ def _is_rate_limited(db: Session, current_user: models.AppUser) -> bool:
         .scalar()
     )
     return int(count or 0) >= settings.manual_outbound_rate_limit_count
+
+
+def _sync_active_calls_for_list(db: Session, calls: list[models.OutboundCall]) -> bool:
+    active_calls = [call for call in calls if call.status in ACTIVE_STATUSES and call.ami_channel_id]
+    if not active_calls:
+        return False
+
+    changed = False
+    ami_client = AsteriskAmiClient(timeout=3.0)
+    for call in active_calls:
+        before_status = call.status
+        before_ended_at = call.ended_at
+        before_failure_reason = call.failure_reason
+        try:
+            _sync_call_status(db, call, ami_client)
+            _sync_recordings(db, call, ami_client)
+        except AmiError as exc:
+            call.failure_reason = str(exc)[:500]
+        changed = (
+            changed
+            or before_status != call.status
+            or before_ended_at != call.ended_at
+            or before_failure_reason != call.failure_reason
+        )
+    if changed:
+        db.flush()
+    return changed
 
 
 def _get_call_or_404(db: Session, call_id: int, current_user: models.AppUser) -> models.OutboundCall:

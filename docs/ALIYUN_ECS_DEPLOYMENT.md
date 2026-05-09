@@ -31,7 +31,7 @@ Backend -> 本地 recordings/，可选上传阿里云 OSS 私有 bucket
 | 443 | TCP | 0.0.0.0/0 | HTTPS 后台访问 |
 | 5060 | UDP | SIP 运营商 IP 段 | SIP 信令 |
 | 5060 | TCP | SIP 运营商 IP 段 | 仅在 trunk 使用 TCP/TLS 时开放 |
-| 10000-10020 | UDP | SIP 运营商 IP 段 | RTP 媒体流，需与 `rtp.conf` 一致 |
+| 10000-20000 | UDP | SIP 运营商 IP 段 | RTP 媒体流，需与 `rtp.conf` 一致 |
 | 5038 | TCP | 不开放公网 | Asterisk AMI，仅容器内或内网访问 |
 | 5432 | TCP | 不开放公网 | PostgreSQL，仅容器内访问 |
 | 8080 | TCP | 不开放公网 | 开发入口，生产使用 80/443 |
@@ -149,6 +149,18 @@ docker compose pull
 docker compose up --build -d
 ```
 
+推荐使用带部署后验证的脚本：
+
+```bash
+APP_DIR=/opt/sip-fastapi-react-postgresql-asterisk-docker \
+APP_URL=http://127.0.0.1:8080 \
+ADMIN_USERNAME=admin \
+ADMIN_PASSWORD='你的后台密码' \
+bash scripts/deploy_aliyun.sh
+```
+
+该脚本会构建并重启服务，然后调用 `/api/system/validate-deployment`。如果出现“调用不正常、挂机同步异常、录音路径不可写、产生重复进行中呼叫”等失败项，脚本会返回非 0 状态码并阻止部署完成。
+
 ## 8. 日志查看
 
 查看所有服务：
@@ -203,7 +215,7 @@ docker compose logs -f postgres
 
 - 确认 backend 可连接 Asterisk AMI：容器内访问 `asterisk:5038`
 - 确认 `manager.conf` 用户名密码和 `.env` 一致
-- 确认 `sip_trunks.name` 与 Asterisk PJSIP endpoint 名称一致
+- 确认 `ASTERISK_OUTBOUND_ENDPOINT=outbound-trunk`，并确认 Asterisk 中存在同名 PJSIP endpoint
 - 执行：`docker compose exec asterisk asterisk -rx "manager show connected"`
 
 ### SIP 注册或出局失败

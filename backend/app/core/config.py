@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "Mini SIP Outbound Call Center"
-    app_version: str = "V1.009"
+    app_version: str = "V1.010"
     app_env: str = "development"
     database_url: str = "postgresql+psycopg://callcenter:callcenter@postgres:5432/callcenter"
     cors_origins: str = "http://localhost:3000,http://localhost:8080"
@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = "admin123456"
     sip_password_encryption_key: str = "change-me-sip-password-encryption-key"
+    log_level: str = "INFO"
+    sentry_dsn: str = ""
+    sentry_environment: str = "production"
+    sentry_traces_sample_rate: float = 0.05
+    sla_slow_request_ms: int = 1500
+    sla_error_rate_window_seconds: int = 300
 
     asterisk_sip_port: int = 5060
     asterisk_rtp_start: int = 10000

@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "target": "ES2022",
+    "types": ["vitest/globals", "vite/client"],
+    "strict": false,
+    "noEmit": true
+  },
+  "include": ["src", "tests"]
+}

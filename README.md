@@ -40,7 +40,7 @@ docker compose up --build
 | PostgreSQL | `localhost:5432` |
 | Asterisk SIP/UDP | `localhost:5060` |
 | Asterisk AMI/TCP | `localhost:5038` |
-| Asterisk RTP/UDP | `10000-10020` |
+| Asterisk RTP/UDP | `10000-20000` |
 
 ## 默认账号与配置
 
@@ -90,6 +90,8 @@ docker compose up --build
 - `PATCH /api/phone-blacklists/{id}`
 - `DELETE /api/phone-blacklists/{id}`
 - `GET /api/audit-logs`
+- `GET /api/system/check`
+- `POST /api/system/validate-deployment`
 
 `POST /api/calls` 当前保留为早期外呼任务记录接口。后台页面里的人工外呼使用 `POST /api/outbound-calls`，通过 Asterisk AMI `Originate` 发起单次人工外呼，不包含批量自动外呼。
 
@@ -183,10 +185,10 @@ MANUAL_OUTBOUND_RATE_LIMIT_WINDOW_SECONDS=60
 当前 AMI 发起通道格式为：
 
 ```text
-PJSIP/<被叫号码>@<sip_trunks.name>
+PJSIP/<被叫号码>@<ASTERISK_OUTBOUND_ENDPOINT>
 ```
 
-因此用于外呼的 `sip_trunks.name` 需要与 Asterisk 中的 PJSIP endpoint 名称一致。骨架自带的占位 endpoint 是 `outbound-trunk`。
+默认真实 Asterisk endpoint 是 `outbound-trunk`。即使数据库里存在多条指向同一供应商的 SIP 线路，系统也会按真实 endpoint 去重，避免同一任务重复拨打同一个出口。
 
 ## 录音与敏感数据
 
@@ -239,7 +241,7 @@ migrations/004_call_recordings.sql
 当前 Asterisk 配置提供：
 
 - UDP SIP 监听：`5060`
-- RTP 范围：`10000-10020`
+- RTP 范围：`10000-20000`
 - AMI：`5038`
 - 一个测试分机：`6001`
 - 一个已配置外呼 trunk：`outbound-trunk`
@@ -253,6 +255,25 @@ migrations/004_call_recordings.sql
 - ECS 公网 IP：`8.163.96.127`
 
 系统启动时会自动 upsert 这条 SIP trunk，并将 `218.245.102.33/32` 写入 SIP 对端白名单。
+
+## 监控与部署后验证
+
+监控、Sentry、日志格式和 SLA 仪表盘建议见：
+
+```text
+docs/MONITORING.md
+```
+
+部署后必须运行自动验证，验证失败会返回非 0 状态码，适合放进部署流水线：
+
+```bash
+APP_URL=http://127.0.0.1:8080 \
+ADMIN_USERNAME=admin \
+ADMIN_PASSWORD='你的后台密码' \
+bash scripts/post_deploy_validate.sh
+```
+
+验证项包括：调用链路正常、挂机同步监听启用、录音路径可写、未产生重复进行中呼叫。
 
 ## 阿里云 ECS 部署
 

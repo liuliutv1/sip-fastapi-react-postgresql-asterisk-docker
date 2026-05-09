@@ -22,9 +22,10 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import SystemCheck from "./SystemCheck";
+import { captureFrontendError } from "./monitoring";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || "V1.009";
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || "V1.010";
 const TOKEN_STORAGE_KEY = "sipcc_access_token";
 
 const createEmptyTrunkForm = () => ({
@@ -89,7 +90,9 @@ async function fetchJson(path, { token, ...options } = {}) {
 
   if (!response.ok) {
     const detail = typeof payload === "object" ? payload.detail : payload;
-    throw new Error(Array.isArray(detail) ? detail.map((item) => item.msg).join("; ") : detail || `HTTP ${response.status}`);
+    const error = new Error(Array.isArray(detail) ? detail.map((item) => item.msg).join("; ") : detail || `HTTP ${response.status}`);
+    captureFrontendError(error, { path, status: response.status, type: "json_api" });
+    throw error;
   }
 
   return payload;
@@ -104,7 +107,9 @@ async function fetchBlob(path, { token } = {}) {
     const contentType = response.headers.get("content-type") || "";
     const payload = contentType.includes("application/json") ? await response.json() : await response.text();
     const detail = typeof payload === "object" ? payload.detail : payload;
-    throw new Error(detail || `HTTP ${response.status}`);
+    const error = new Error(detail || `HTTP ${response.status}`);
+    captureFrontendError(error, { path, status: response.status, type: "blob_api" });
+    throw error;
   }
 
   return response.blob();
