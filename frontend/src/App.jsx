@@ -24,7 +24,7 @@ import { useEffect, useMemo, useState } from "react";
 import SystemCheck from "./SystemCheck";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || "V1.003";
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || "V1.004";
 const TOKEN_STORAGE_KEY = "sipcc_access_token";
 
 const createEmptyTrunkForm = () => ({
@@ -221,42 +221,37 @@ function App() {
       setError("");
     }
     try {
-      const [
-        me,
-        readyData,
-        agentsData,
-        campaignsData,
-        callsData,
-        trunkData,
-        whitelistData,
-        outboundCallData,
-        blacklistData,
-        recordingData,
-        auditData,
-      ] = await Promise.all([
-        fetchJson("/auth/me", { token: activeToken }),
-        fetchJson("/health/ready"),
-        fetchJson("/agents"),
-        fetchJson("/campaigns"),
-        fetchJson("/calls"),
-        fetchJson("/sip-trunks", { token: activeToken }),
-        fetchJson("/sip-peer-whitelists", { token: activeToken }),
-        fetchJson("/outbound-calls?limit=100", { token: activeToken }),
-        fetchJson("/phone-blacklists", { token: activeToken }),
-        fetchJson("/call-recordings?limit=100", { token: activeToken }),
-        fetchJson("/audit-logs?limit=100", { token: activeToken }),
-      ]);
-      setUser(me);
-      setReady(readyData);
-      setAgents(agentsData);
-      setCampaigns(campaignsData);
-      setCalls(callsData);
-      setSipTrunks(trunkData);
-      setPeerWhitelists(whitelistData);
-      setOutboundCalls(outboundCallData);
-      setPhoneBlacklists(blacklistData);
-      setCallRecordings(recordingData);
-      setAuditLogs(auditData);
+      const requests = [
+        { label: "当前用户", load: () => fetchJson("/auth/me", { token: activeToken }), apply: setUser },
+        { label: "健康状态", load: () => fetchJson("/health/ready"), apply: setReady },
+        { label: "坐席", load: () => fetchJson("/agents"), apply: setAgents },
+        { label: "批次", load: () => fetchJson("/campaigns"), apply: setCampaigns },
+        { label: "呼叫任务", load: () => fetchJson("/calls"), apply: setCalls },
+        { label: "SIP 线路", load: () => fetchJson("/sip-trunks", { token: activeToken }), apply: setSipTrunks },
+        { label: "SIP 白名单", load: () => fetchJson("/sip-peer-whitelists", { token: activeToken }), apply: setPeerWhitelists },
+        { label: "外呼记录", load: () => fetchJson("/outbound-calls?limit=100", { token: activeToken }), apply: setOutboundCalls },
+        { label: "黑名单", load: () => fetchJson("/phone-blacklists", { token: activeToken }), apply: setPhoneBlacklists },
+        { label: "录音", load: () => fetchJson("/call-recordings?limit=100", { token: activeToken }), apply: setCallRecordings },
+        { label: "审计日志", load: () => fetchJson("/audit-logs?limit=100", { token: activeToken }), apply: setAuditLogs },
+      ];
+      const results = await Promise.allSettled(requests.map((request) => request.load()));
+      const errors = [];
+      results.forEach((result, index) => {
+        const request = requests[index];
+        if (result.status === "fulfilled") {
+          request.apply(result.value);
+          return;
+        }
+        const message = result.reason?.message || "请求失败";
+        if (String(message).includes("Invalid bearer token") || String(message).includes("Missing bearer token")) {
+          logout();
+          return;
+        }
+        errors.push(`${request.label}: ${message}`);
+      });
+      if (errors.length && !silent) {
+        setError(`部分数据加载失败：${errors.slice(0, 3).join("；")}`);
+      }
     } catch (err) {
       if (String(err.message).includes("Invalid bearer token") || String(err.message).includes("Missing bearer token")) {
         logout();

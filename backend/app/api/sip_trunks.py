@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app import models, schemas
@@ -91,7 +91,10 @@ def create_sip_trunk(
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail="SIP trunk name already exists") from exc
+        raise HTTPException(status_code=409, detail="SIP 线路名称已存在，请直接编辑现有线路") from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="保存 SIP 线路失败，请检查数据库迁移或查看后端日志") from exc
 
     db.refresh(trunk)
     return serialize_trunk(trunk)
@@ -128,7 +131,10 @@ def update_sip_trunk(
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail="SIP trunk name already exists") from exc
+        raise HTTPException(status_code=409, detail="SIP 线路名称已存在，请换一个名称或编辑现有线路") from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="保存 SIP 线路失败，请检查数据库迁移或查看后端日志") from exc
 
     db.refresh(trunk)
     return serialize_trunk(trunk)
