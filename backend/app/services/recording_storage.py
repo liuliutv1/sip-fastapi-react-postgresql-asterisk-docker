@@ -27,16 +27,26 @@ def retention_expires_at() -> datetime | None:
 
 
 def ensure_recording_dir() -> None:
-    Path(settings.recordings_local_dir).mkdir(parents=True, exist_ok=True)
+    path = Path(settings.recordings_local_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        path.chmod(0o755)
+    except OSError:
+        pass
 
 
 def refresh_local_file_metadata(recording: models.CallRecording, *, mark_available: bool = True) -> None:
     if not recording.local_path:
         return
     path = Path(recording.local_path)
-    if not path.exists() or not path.is_file():
+    try:
+        if not path.exists() or not path.is_file():
+            return
+        stat = path.stat()
+    except OSError as exc:
+        recording.failure_reason = f"录音文件权限不足或无法访问: {exc}"[:500]
         return
-    recording.file_size_bytes = path.stat().st_size
+    recording.file_size_bytes = stat.st_size
     if mark_available and recording.status in {"pending", "recording", "failed", "available"} and recording.file_size_bytes > 0:
         recording.status = "completed"
         recording.file_path = recording.local_path
@@ -47,8 +57,12 @@ def delete_local_file(recording: models.CallRecording) -> None:
     if not recording.local_path:
         return
     path = Path(recording.local_path)
-    if path.exists() and path.is_file():
-        path.unlink()
+    try:
+        if path.exists() and path.is_file():
+            path.unlink()
+    except OSError as exc:
+        recording.failure_reason = f"录音文件删除失败: {exc}"[:500]
+        raise
 
 
 class AliyunOssAdapter:

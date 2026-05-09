@@ -25,9 +25,13 @@ services:
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
     container_name: sipcc-backend
     restart: unless-stopped
+    user: "0:0"
+    command: >
+      sh -c "chmod -R u+rwX,go+rX /recordings 2>/dev/null || true;
+      exec uvicorn app.main:app --host 0.0.0.0 --port 8000"
     environment:
       APP_NAME: ${APP_NAME:-Mini SIP Outbound Call Center}
-      APP_VERSION: ${APP_VERSION:-V1.006}
+      APP_VERSION: ${APP_VERSION:-V1.007}
       APP_ENV: ${APP_ENV:-development}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://callcenter:callcenter@postgres:5432/callcenter}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:8080}
@@ -83,7 +87,7 @@ services:
       context: ./frontend
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
-        VITE_APP_VERSION: ${APP_VERSION:-V1.006}
+        VITE_APP_VERSION: ${APP_VERSION:-V1.007}
         NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}
     container_name: sipcc-frontend
     restart: unless-stopped
