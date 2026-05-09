@@ -58,9 +58,9 @@ def run_system_check(
     try:
         uptime = _ami_command("core show uptime")
         first_line = uptime.splitlines()[0] if uptime else "AMI 已响应"
-        results.append(_result("Asterisk 服务", "ok", first_line))
+        results.append(_result("Asterisk 服务状态", "ok", first_line))
     except AmiError as exc:
-        results.append(_result("Asterisk 服务", "fail", f"Asterisk AMI 连接失败：{exc}"))
+        results.append(_result("Asterisk 服务状态", "fail", f"Asterisk AMI 连接失败：{exc}"))
         _record_system_check_audit(db, request, current_user, results)
         return results
 
@@ -69,15 +69,15 @@ def run_system_check(
         if f":{settings.asterisk_sip_port}" in transports or "transport-udp" in transports:
             results.append(
                 _result(
-                    "SIP 端口入方向",
+                    "SIP 信令端口",
                     "warn",
                     f"Asterisk 已配置 SIP UDP {settings.asterisk_sip_port}；后端无法直接读取云安全组，请确认阿里云入方向仅对供应商 IP 开放",
                 )
             )
         else:
-            results.append(_result("SIP 端口入方向", "fail", f"Asterisk 未显示 SIP UDP {settings.asterisk_sip_port} 传输配置"))
+            results.append(_result("SIP 信令端口", "fail", f"Asterisk 未显示 SIP UDP {settings.asterisk_sip_port} 传输配置"))
     except AmiError as exc:
-        results.append(_result("SIP 端口入方向", "fail", f"读取 Asterisk SIP 传输配置失败：{exc}"))
+        results.append(_result("SIP 信令端口", "fail", f"读取 Asterisk SIP 传输配置失败：{exc}"))
 
     if settings.asterisk_rtp_start <= 10000 and settings.asterisk_rtp_end >= 20000:
         results.append(_result("RTP 端口范围", "ok", f"当前配置覆盖 UDP {settings.asterisk_rtp_start}-{settings.asterisk_rtp_end}"))

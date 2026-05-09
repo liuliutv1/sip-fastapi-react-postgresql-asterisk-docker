@@ -1,8 +1,8 @@
-import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import models, schemas
@@ -11,20 +11,22 @@ from app.core.config import settings
 from app.db import get_db
 from app.services.asterisk import AmiError, AsteriskAmiClient
 from app.services.audit import record_audit_log
-from app.services.recording_storage import (
-    asterisk_recording_path,
-    build_recording_filename,
-    ensure_recording_dir,
-    local_recording_path,
-    refresh_local_file_metadata,
-    retention_expires_at,
-    upload_to_oss_if_enabled,
+from app.services.call_lifecycle import (
+    ACTIVE_CALL_STATUSES,
+    TERMINAL_CALL_STATUSES,
+    call_recordings,
+    complete_call_from_hangup,
+    finalize_recording,
+    find_active_call_by_destination,
 )
+from app.services.outbound_dialer import OutboundDialError, originate_with_failover, try_start_recording
+from app.services.recording_storage import refresh_local_file_metadata
 
 router = APIRouter()
 
-ACTIVE_STATUSES = {"initiating", "dialing", "ringing", "in_progress", "hangup_requested"}
-TERMINAL_STATUSES = {"ended", "failed", "blocked", "rate_limited"}
+ACTIVE_STATUSES = ACTIVE_CALL_STATUSES
+TERMINAL_STATUSES = TERMINAL_CALL_STATUSES
+DUPLICATE_CALL_MESSAGE = "该号码当前已有进行中的呼叫，请等待结束后再发起外呼"
 
 
 @router.get("", response_model=list[schemas.OutboundCallRead])
@@ -53,6 +55,10 @@ def originate_manual_call(
     )
     if trunk is None:
         raise HTTPException(status_code=404, detail="Enabled SIP trunk not found")
+
+    active_call = find_active_call_by_destination(db, payload.destination_number)
+    if active_call:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=DUPLICATE_CALL_MESSAGE)
 
     blocked_entry = (
         db.query(models.PhoneBlacklist)
@@ -86,31 +92,22 @@ def originate_manual_call(
         db.commit()
         raise HTTPException(status_code=429, detail="Manual outbound call rate limit exceeded")
 
-    call = _create_call(db, current_user=current_user, payload=payload, status_value="initiating")
-    db.flush()
-    action_id = f"manual-{call.id}-{uuid.uuid4().hex}"
-    channel_id = f"outbound-{call.id}-{uuid.uuid4().hex}"
-    call.ami_action_id = action_id
-    call.ami_channel_id = channel_id
-
-    caller_id = payload.caller_id or trunk.caller_id or settings.app_name
-    call.caller_id = caller_id
     try:
-        ami_client = AsteriskAmiClient()
-        ami_client.originate(
-            trunk_name=trunk.name,
+        call = _create_call(db, current_user=current_user, payload=payload, status_value="initiating")
+    except IntegrityError as exc:
+        db.rollback()
+        if "uq_outbound_calls_active_destination" in str(exc.orig):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=DUPLICATE_CALL_MESSAGE) from exc
+        raise
+    try:
+        originate_with_failover(
+            db,
+            call,
+            preferred_trunk=trunk,
             destination=payload.destination_number,
-            caller_id=caller_id,
-            action_id=action_id,
-            channel_id=channel_id,
+            caller_id=payload.caller_id,
         )
-        now = datetime.now(UTC)
-        call.status = "dialing"
-        call.started_at = now
-        call.failure_reason = None
-        recording = _create_pending_recording(db, call)
-        _try_start_recording(call, recording, ami_client)
-    except AmiError as exc:
+    except OutboundDialError as exc:
         call.status = "failed"
         call.failure_reason = str(exc)
         call.ended_at = datetime.now(UTC)
@@ -131,12 +128,15 @@ def refresh_outbound_call_status(
 ):
     call = _get_call_or_404(db, call_id, current_user)
     if call.status in TERMINAL_STATUSES or not call.ami_channel_id:
+        if call.status in {"completed", "hangup", "ended"}:
+            _sync_recordings(db, call, None)
+            db.commit()
         return call
 
     before = schemas.OutboundCallRead.model_validate(call).model_dump(mode="json")
     try:
         ami_client = AsteriskAmiClient()
-        _sync_call_status(call, ami_client)
+        _sync_call_status(db, call, ami_client)
         _sync_recordings(db, call, ami_client)
     except AmiError as exc:
         call.failure_reason = str(exc)
@@ -166,17 +166,18 @@ def hangup_outbound_call(
     call = _get_call_or_404(db, call_id, current_user)
     before = schemas.OutboundCallRead.model_validate(call).model_dump(mode="json")
     if call.status in TERMINAL_STATUSES:
+        _sync_recordings(db, call, None)
+        db.commit()
         return call
 
     if not call.ami_channel_id:
-        call.status = "ended"
-        call.ended_at = datetime.now(UTC)
+        complete_call_from_hangup(db, call, status_value="completed", reason="用户手动挂断")
     else:
         try:
             ami_client = AsteriskAmiClient()
             channel = ami_client.find_channel_by_id(call.ami_channel_id)
             if channel and channel.channel:
-                for recording in _call_recordings(db, call):
+                for recording in call_recordings(db, call):
                     if recording.status == "recording":
                         try:
                             ami_client.stop_mixmonitor(channel.channel)
@@ -186,8 +187,7 @@ def hangup_outbound_call(
                 call.asterisk_channel = channel.channel
                 call.status = "hangup_requested"
             else:
-                call.status = "ended"
-                call.ended_at = datetime.now(UTC)
+                complete_call_from_hangup(db, call, status_value="completed", reason="通道已结束")
         except AmiError as exc:
             call.failure_reason = str(exc)
             db.flush()
@@ -265,12 +265,11 @@ def _get_call_or_404(db: Session, call_id: int, current_user: models.AppUser) ->
     return call
 
 
-def _sync_call_status(call: models.OutboundCall, ami_client: AsteriskAmiClient) -> None:
+def _sync_call_status(db: Session, call: models.OutboundCall, ami_client: AsteriskAmiClient) -> None:
     channel = ami_client.find_channel_by_id(call.ami_channel_id or "")
     if channel is None:
         if call.status in ACTIVE_STATUSES:
-            call.status = "ended"
-            call.ended_at = call.ended_at or datetime.now(UTC)
+            complete_call_from_hangup(db, call, status_value="completed", reason="Asterisk 通道已结束")
         return
 
     call.asterisk_channel = channel.channel
@@ -284,78 +283,21 @@ def _sync_call_status(call: models.OutboundCall, ami_client: AsteriskAmiClient) 
         call.status = "dialing"
 
 
-def _create_pending_recording(db: Session, call: models.OutboundCall) -> models.CallRecording:
-    ensure_recording_dir()
-    filename = build_recording_filename(call.id)
-    recording = models.CallRecording(
-        outbound_call_id=call.id,
-        user_id=call.user_id,
-        destination_number=call.destination_number,
-        status="pending",
-        storage_backend="local",
-        filename=filename,
-        content_type="audio/wav",
-        local_path=local_recording_path(filename),
-        asterisk_path=asterisk_recording_path(filename),
-        retention_expires_at=retention_expires_at(),
-    )
-    db.add(recording)
-    db.flush()
-    return recording
-
-
-def _try_start_recording(
-    call: models.OutboundCall,
-    recording: models.CallRecording,
-    ami_client: AsteriskAmiClient,
-) -> None:
-    if not call.ami_channel_id or recording.status not in {"pending", "failed"}:
-        return
-    channel = ami_client.find_channel_by_id(call.ami_channel_id)
-    if channel is None or not channel.channel:
-        return
-    ami_client.start_mixmonitor(channel.channel, recording.asterisk_path or recording.local_path or recording.filename)
-    call.asterisk_channel = channel.channel
-    recording.status = "recording"
-    recording.failure_reason = None
-
-
-def _sync_recordings(db: Session, call: models.OutboundCall, ami_client: AsteriskAmiClient) -> None:
-    recordings = _call_recordings(db, call)
+def _sync_recordings(db: Session, call: models.OutboundCall, ami_client: AsteriskAmiClient | None) -> None:
+    recordings = call_recordings(db, call)
     for recording in recordings:
         if recording.deleted_at:
             continue
-        if recording.status == "pending":
+        if recording.status == "pending" and ami_client is not None:
             try:
-                _try_start_recording(call, recording, ami_client)
+                try_start_recording(call, recording, ami_client)
             except AmiError as exc:
                 recording.status = "failed"
                 recording.failure_reason = str(exc)
         if call.status in TERMINAL_STATUSES or call.status == "ended":
-            _finalize_recording(recording)
+            finalize_recording(recording)
         elif recording.status == "recording":
             refresh_local_file_metadata(recording, mark_available=False)
-
-
-def _finalize_recording(recording: models.CallRecording) -> None:
-    refresh_local_file_metadata(recording)
-    if recording.status == "available":
-        try:
-            upload_to_oss_if_enabled(recording)
-        except Exception as exc:
-            recording.failure_reason = f"OSS upload failed: {exc}"
-    elif recording.status in {"pending", "recording"}:
-        recording.status = "failed"
-        recording.failure_reason = recording.failure_reason or "Recording file was not found"
-
-
-def _call_recordings(db: Session, call: models.OutboundCall) -> list[models.CallRecording]:
-    return (
-        db.query(models.CallRecording)
-        .filter(models.CallRecording.outbound_call_id == call.id)
-        .order_by(models.CallRecording.id.desc())
-        .all()
-    )
 
 
 def _audit_call(

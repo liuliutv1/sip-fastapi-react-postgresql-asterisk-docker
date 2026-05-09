@@ -134,6 +134,10 @@ p {
 }
 
 h1 {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   font-size: 30px;
   line-height: 1.2;
 }
@@ -299,7 +303,7 @@ button:disabled {
 }
 
 .table-row--trunks {
-  grid-template-columns: minmax(160px, 1fr) auto auto auto auto;
+  grid-template-columns: minmax(160px, 1fr) auto auto auto auto auto auto;
 }
 
 .table-row--whitelist {
@@ -370,6 +374,20 @@ button:disabled {
 .status-pill--danger {
   background: #fee4e2;
   color: #b42318;
+}
+
+.version-badge {
+  align-items: center;
+  background: #e8f3ee;
+  border: 1px solid #b8ddca;
+  border-radius: 999px;
+  color: #286142;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  min-height: 26px;
+  padding: 0 10px;
 }
 
 .empty {
@@ -474,6 +492,12 @@ button:disabled {
 }
 
 .player-bar audio {
+  width: 100%;
+}
+
+.row-audio {
+  grid-column: 1 / -1;
+  min-width: 0;
   width: 100%;
 }
 

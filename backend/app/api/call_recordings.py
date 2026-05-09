@@ -9,6 +9,7 @@ from app import models, schemas
 from app.api.deps import get_current_user
 from app.db import get_db
 from app.services.audit import record_audit_log
+from app.services.call_lifecycle import TERMINAL_CALL_STATUSES, finalize_recording
 from app.services.recording_storage import (
     delete_local_file,
     delete_oss_object_if_exists,
@@ -35,6 +36,8 @@ def list_call_recordings(
         query = query.filter(models.CallRecording.deleted_at.is_(None))
 
     recordings = query.order_by(models.CallRecording.id.desc()).limit(limit).all()
+    for recording in recordings:
+        _refresh_recording_state(recording)
     record_audit_log(
         db,
         action="call_recording.list",
@@ -55,6 +58,7 @@ def get_call_recording(
     current_user: models.AppUser = Depends(get_current_user),
 ):
     recording = _get_recording_or_404(db, recording_id, current_user)
+    _refresh_recording_state(recording)
     record_audit_log(
         db,
         action="call_recording.get",
@@ -170,9 +174,9 @@ def _get_recording_or_404(db: Session, recording_id: int, current_user: models.A
 
 
 def _recording_response(recording: models.CallRecording, *, as_attachment: bool):
-    refresh_local_file_metadata(recording)
-    if recording.status != "available":
-        raise HTTPException(status_code=409, detail="Recording is not available yet")
+    _refresh_recording_state(recording)
+    if recording.status not in {"completed", "available"}:
+        raise HTTPException(status_code=409, detail="录音尚未完成，请稍后再试")
     if recording.oss_key and recording.storage_backend == "oss":
         return RedirectResponse(signed_oss_url(recording, as_attachment=as_attachment))
 
@@ -181,7 +185,7 @@ def _recording_response(recording: models.CallRecording, *, as_attachment: bool)
 
     path = Path(recording.local_path)
     if not path.exists() or not path.is_file():
-        if recording.status == "available":
+        if recording.status in {"completed", "available"}:
             try:
                 upload_to_oss_if_enabled(recording)
             except Exception:
@@ -193,6 +197,14 @@ def _recording_response(recording: models.CallRecording, *, as_attachment: bool)
         media_type=recording.content_type or "audio/wav",
         filename=recording.filename if as_attachment else None,
     )
+
+
+def _refresh_recording_state(recording: models.CallRecording) -> None:
+    call = recording.outbound_call
+    if call and call.status in TERMINAL_CALL_STATUSES:
+        finalize_recording(recording, wait_seconds=0.5)
+        return
+    refresh_local_file_metadata(recording, mark_available=False)
 
 
 def _delete_recording_payload(

@@ -195,6 +195,8 @@ class SipTrunkUpdate(BaseModel):
 class SipTrunkRead(SipTrunkBase):
     id: int
     password_configured: bool
+    last_health_checked_at: datetime | None = None
+    last_health_message: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -303,6 +305,9 @@ class OutboundCallRead(BaseModel):
     ami_channel_id: str | None = None
     asterisk_channel: str | None = None
     failure_reason: str | None = None
+    hangup_cause: str | None = None
+    attempt_count: int = 0
+    attempted_trunk_ids: str | None = None
     started_at: datetime | None = None
     answered_at: datetime | None = None
     ended_at: datetime | None = None
@@ -375,6 +380,7 @@ class CallRecordingRead(BaseModel):
     storage_backend: str
     filename: str
     content_type: str
+    file_path: str | None = None
     file_size_bytes: int | None = None
     duration_seconds: int | None = None
     retention_expires_at: datetime | None = None

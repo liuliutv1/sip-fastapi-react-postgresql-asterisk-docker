@@ -19,7 +19,10 @@ from app.api import (
 )
 from app.core.config import settings
 from app.db import Base, SessionLocal, engine
+from app.services.ami_event_listener import ami_hangup_event_listener
 from app.services.provider_defaults import ensure_carrier_sip_trunk
+from app.services.schema_migrations import ensure_runtime_schema
+from app.services.trunk_health import sip_trunk_health_monitor
 from app.services.users import ensure_default_admin
 from app import models  # noqa: F401
 
@@ -28,14 +31,21 @@ from app import models  # noqa: F401
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
+        ensure_runtime_schema(db)
         ensure_default_admin(db)
         ensure_carrier_sip_trunk(db)
-    yield
+    sip_trunk_health_monitor.start()
+    ami_hangup_event_listener.start()
+    try:
+        yield
+    finally:
+        ami_hangup_event_listener.stop()
+        sip_trunk_health_monitor.stop()
 
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.0",
+    version=settings.app_version,
     lifespan=lifespan,
 )
 
@@ -56,6 +66,7 @@ app.include_router(calls.router, prefix="/api/calls", tags=["calls"])
 app.include_router(sip_trunks.router, prefix="/api/sip-trunks", tags=["sip-trunks"])
 app.include_router(sip_peer_whitelists.router, prefix="/api/sip-peer-whitelists", tags=["sip-peer-whitelists"])
 app.include_router(outbound_calls.router, prefix="/api/outbound-calls", tags=["outbound-calls"])
+app.include_router(outbound_calls.router, prefix="/api/calls/outbound", tags=["outbound-calls"])
 app.include_router(phone_blacklists.router, prefix="/api/phone-blacklists", tags=["phone-blacklists"])
 app.include_router(call_recordings.router, prefix="/api/call-recordings", tags=["call-recordings"])
 app.include_router(audit_logs.router, prefix="/api/audit-logs", tags=["audit-logs"])
@@ -66,6 +77,7 @@ app.include_router(system.router, prefix="/api/system", tags=["system"])
 def root():
     return {
         "name": settings.app_name,
+        "version": settings.app_version,
         "docs": "/docs",
         "health": "/health/live",
     }

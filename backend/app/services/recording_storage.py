@@ -2,6 +2,7 @@ import os
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import quote
 
 from app import models
 from app.core.config import settings
@@ -36,8 +37,9 @@ def refresh_local_file_metadata(recording: models.CallRecording, *, mark_availab
     if not path.exists() or not path.is_file():
         return
     recording.file_size_bytes = path.stat().st_size
-    if mark_available and recording.status in {"pending", "recording", "failed"} and recording.file_size_bytes > 0:
-        recording.status = "available"
+    if mark_available and recording.status in {"pending", "recording", "failed", "available"} and recording.file_size_bytes > 0:
+        recording.status = "completed"
+        recording.file_path = recording.local_path
         recording.failure_reason = None
 
 
@@ -75,21 +77,36 @@ class AliyunOssAdapter:
 
 def upload_to_oss_if_enabled(recording: models.CallRecording) -> None:
     if settings.recordings_storage_backend.lower() != "oss":
+        if recording.local_path:
+            recording.file_path = recording.local_path
         return
     if recording.oss_key:
         recording.storage_backend = "oss"
+        recording.file_path = oss_object_url(recording.oss_key)
         return
     if not recording.local_path or not Path(recording.local_path).exists():
         return
     adapter = AliyunOssAdapter()
     recording.oss_key = adapter.upload_file(recording.local_path, recording.filename)
     recording.storage_backend = "oss"
+    recording.file_path = oss_object_url(recording.oss_key)
 
 
 def signed_oss_url(recording: models.CallRecording, *, as_attachment: bool) -> str:
     if not recording.oss_key:
         raise RuntimeError("Recording has no OSS object key")
     return AliyunOssAdapter().sign_url(recording.oss_key, recording.filename, as_attachment)
+
+
+def oss_object_url(oss_key: str) -> str:
+    endpoint = settings.aliyun_oss_endpoint.strip().rstrip("/")
+    if not endpoint:
+        return oss_key
+    if not endpoint.startswith(("http://", "https://")):
+        endpoint = f"https://{endpoint}"
+    scheme, rest = endpoint.split("://", 1)
+    encoded_key = "/".join(quote(part) for part in oss_key.split("/"))
+    return f"{scheme}://{settings.aliyun_oss_bucket}.{rest}/{encoded_key}"
 
 
 def delete_oss_object_if_exists(recording: models.CallRecording) -> None:

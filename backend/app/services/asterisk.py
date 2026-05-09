@@ -37,9 +37,8 @@ class AsteriskAmiClient:
                 "Action": "Originate",
                 "ActionID": action_id,
                 "Channel": channel,
-                "Context": "outbound",
-                "Exten": destination,
-                "Priority": "1",
+                "Application": "Wait",
+                "Data": str(settings.asterisk_outbound_hold_seconds),
                 "CallerID": caller_id,
                 "Async": "true",
                 "Timeout": str(settings.asterisk_originate_timeout_ms),
@@ -85,7 +84,6 @@ class AsteriskAmiClient:
                 "ActionID": f"mixmonitor-{uuid.uuid4().hex}",
                 "Channel": channel,
                 "File": file_path,
-                "Options": "b",
             }
         )
 
@@ -111,6 +109,46 @@ class AsteriskAmiClient:
         else:
             output = response.get("Output", "")
         return "\n".join(line for line in output.splitlines() if line.strip() != "--END COMMAND--")
+
+    def iter_events(self, event_names: set[str] | None = None):
+        with socket.create_connection(
+            (settings.asterisk_ami_host, settings.asterisk_ami_port),
+            timeout=self.timeout,
+        ) as sock:
+            sock.settimeout(self.timeout)
+            buffer = ""
+
+            login_action_id = f"login-{uuid.uuid4().hex}"
+            self._send_action(
+                sock,
+                {
+                    "Action": "Login",
+                    "ActionID": login_action_id,
+                    "Username": settings.asterisk_ami_username,
+                    "Secret": settings.asterisk_ami_password,
+                    "Events": "on",
+                },
+            )
+            buffer, login_response = self._read_response(sock, buffer, login_action_id)
+            self._ensure_success(login_response, "AMI event listener login failed")
+            sock.settimeout(1.0)
+
+            try:
+                while True:
+                    try:
+                        buffer, packet = self._read_packet(sock, buffer)
+                    except AmiError as exc:
+                        if "Timed out reading AMI packet" in str(exc):
+                            continue
+                        raise
+                    event_name = packet.get("Event")
+                    if event_name and (event_names is None or event_name in event_names):
+                        yield packet
+            finally:
+                try:
+                    self._send_action(sock, {"Action": "Logoff", "ActionID": f"logoff-{uuid.uuid4().hex}"})
+                except OSError:
+                    pass
 
     def _request(self, fields: dict[str, str], complete_event: str | None = None) -> dict[str, str] | list[dict[str, str]]:
         with socket.create_connection(
@@ -215,8 +253,7 @@ def build_originate_preview(destination: str) -> dict[str, str]:
     return {
         "action": "Originate",
         "channel": f"PJSIP/{destination}@outbound-trunk",
-        "context": "outbound",
-        "exten": destination,
-        "priority": "1",
+        "application": "Wait",
+        "data": str(settings.asterisk_outbound_hold_seconds),
         "caller_id": settings.app_name,
     }

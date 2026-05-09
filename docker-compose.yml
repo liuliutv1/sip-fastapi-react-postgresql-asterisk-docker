@@ -27,6 +27,7 @@ services:
     restart: unless-stopped
     environment:
       APP_NAME: ${APP_NAME:-Mini SIP Outbound Call Center}
+      APP_VERSION: ${APP_VERSION:-V1.001}
       APP_ENV: ${APP_ENV:-development}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://callcenter:callcenter@postgres:5432/callcenter}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:8080}
@@ -41,7 +42,11 @@ services:
       ASTERISK_AMI_PORT: ${ASTERISK_AMI_PORT:-5038}
       ASTERISK_AMI_USERNAME: ${ASTERISK_AMI_USERNAME:-callcenter}
       ASTERISK_AMI_PASSWORD: ${ASTERISK_AMI_PASSWORD:-callcenter}
+      ASTERISK_AMI_EVENT_LISTENER_ENABLED: ${ASTERISK_AMI_EVENT_LISTENER_ENABLED:-true}
       ASTERISK_ORIGINATE_TIMEOUT_MS: ${ASTERISK_ORIGINATE_TIMEOUT_MS:-30000}
+      ASTERISK_OUTBOUND_HOLD_SECONDS: ${ASTERISK_OUTBOUND_HOLD_SECONDS:-7200}
+      SIP_TRUNK_HEALTH_CHECK_ENABLED: ${SIP_TRUNK_HEALTH_CHECK_ENABLED:-true}
+      SIP_TRUNK_HEALTH_CHECK_INTERVAL_SECONDS: ${SIP_TRUNK_HEALTH_CHECK_INTERVAL_SECONDS:-60}
       SIP_VENDOR_IP: ${SIP_VENDOR_IP:-218.245.102.33}
       SIP_VENDOR_PORT: ${SIP_VENDOR_PORT:-6876}
       SIP_TRUNK_NAME: ${SIP_TRUNK_NAME:-outbound-trunk}
@@ -77,6 +82,7 @@ services:
       context: ./frontend
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+        VITE_APP_VERSION: ${APP_VERSION:-V1.001}
         NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}
     container_name: sipcc-frontend
     restart: unless-stopped

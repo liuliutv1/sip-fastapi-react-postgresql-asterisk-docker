@@ -24,6 +24,7 @@ import { useEffect, useMemo, useState } from "react";
 import SystemCheck from "./SystemCheck";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || "V1.001";
 const TOKEN_STORAGE_KEY = "sipcc_access_token";
 
 const createEmptyTrunkForm = () => ({
@@ -168,6 +169,16 @@ function App() {
     }
   }, [token]);
 
+  useEffect(() => {
+    if (!token || !["overview", "manual", "recordings"].includes(activeView)) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      refresh(token, { silent: true });
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [token, activeView]);
+
   function saveToken(nextToken) {
     setToken(nextToken);
     localStorage.setItem(TOKEN_STORAGE_KEY, nextToken);
@@ -199,13 +210,16 @@ function App() {
     }
   }
 
-  async function refresh(activeToken = token) {
+  async function refresh(activeToken = token, options = {}) {
     if (!activeToken) {
       return;
     }
 
-    setLoading(true);
-    setError("");
+    const silent = Boolean(options.silent);
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const [
         me,
@@ -247,9 +261,13 @@ function App() {
       if (String(err.message).includes("Invalid bearer token") || String(err.message).includes("Missing bearer token")) {
         logout();
       }
-      setError(err.message);
+      if (!silent) {
+        setError(err.message);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }
 
@@ -569,7 +587,7 @@ function App() {
             <RadioTower size={30} aria-hidden="true" />
             <div>
               <strong>SIP 外呼中心</strong>
-              <span>线路与白名单管理</span>
+              <span>线路与白名单管理 · {APP_VERSION}</span>
             </div>
           </div>
           <Field label="用户名">
@@ -606,7 +624,9 @@ function App() {
           <RadioTower size={28} aria-hidden="true" />
           <div>
             <strong>SIP 外呼中心</strong>
-            <span>{user?.username || "Authenticated"}</span>
+            <span>
+              {user?.username || "Authenticated"} · {APP_VERSION}
+            </span>
           </div>
         </div>
         <nav className="nav-list" aria-label="主导航">
@@ -638,7 +658,10 @@ function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">Outbound Console</p>
-            <h1>小型 SIP 外呼呼叫中心</h1>
+            <h1>
+              小型 SIP 外呼呼叫中心
+              <span className="version-badge">{APP_VERSION}</span>
+            </h1>
           </div>
           <div className="actions">
             <button className="icon-button" onClick={() => refresh()} disabled={loading} title="刷新">
@@ -900,6 +923,7 @@ function renderManualCalls(props) {
                     )}
                   </div>
                   {call.failure_reason && <p className="row-note">{call.failure_reason}</p>}
+                  {call.hangup_cause && <p className="row-note">挂断原因：{call.hangup_cause}</p>}
                 </div>
               ))
             )}
@@ -1018,7 +1042,7 @@ function renderRecordings(props) {
                   type="button"
                   onClick={() => playRecording(recording)}
                   title="播放"
-                  disabled={loading || recording.status !== "available"}
+                  disabled={loading || !isRecordingCompleted(recording.status)}
                 >
                   <Play size={16} aria-hidden="true" />
                 </button>
@@ -1027,7 +1051,7 @@ function renderRecordings(props) {
                   type="button"
                   onClick={() => downloadRecording(recording)}
                   title="下载"
-                  disabled={loading || recording.status !== "available"}
+                  disabled={loading || !isRecordingCompleted(recording.status)}
                 >
                   <Download size={16} aria-hidden="true" />
                 </button>
@@ -1035,6 +1059,10 @@ function renderRecordings(props) {
                   <Trash2 size={16} aria-hidden="true" />
                 </button>
               </div>
+              {isRecordingCompleted(recording.status) && selectedRecordingId === recording.id && recordingAudioUrl && (
+                <audio className="row-audio" controls src={recordingAudioUrl} />
+              )}
+              {!isRecordingCompleted(recording.status) && <p className="row-note">录音处理中，请稍后刷新</p>}
               {recording.failure_reason && <p className="row-note">{recording.failure_reason}</p>}
             </div>
           ))
@@ -1171,6 +1199,8 @@ function renderTrunks(props) {
                   <span>{trunk.host}:{trunk.port}</span>
                 </div>
                 <StatusPill label={trunk.transport.toUpperCase()} />
+                <StatusPill label={formatTrunkStatus(trunk.status)} tone={trunk.status === "active" ? "success" : trunk.status === "error" ? "danger" : "warning"} />
+                <StatusPill label={`并发 ${trunk.max_channels || 1}`} />
                 <StatusPill label={trunk.enabled ? "enabled" : "disabled"} tone={trunk.enabled ? "success" : "neutral"} />
                 <StatusPill label={trunk.password_configured ? "密码已配置" : "无密码"} tone={trunk.password_configured ? "success" : "warning"} />
                 <div className="row-actions">
@@ -1369,17 +1399,17 @@ function validateTrunkForm(form) {
 }
 
 function isActiveCall(status) {
-  return ["initiating", "dialing", "ringing", "in_progress", "hangup_requested"].includes(status);
+  return ["queued", "initiating", "dialing", "ringing", "answered", "in_progress", "hangup_requested"].includes(status);
 }
 
 function callStatusTone(status) {
-  if (status === "in_progress" || status === "ringing") {
+  if (status === "answered" || status === "in_progress") {
     return "success";
   }
   if (status === "failed" || status === "blocked" || status === "rate_limited") {
     return "danger";
   }
-  if (status === "dialing" || status === "hangup_requested") {
+  if (status === "initiating" || status === "dialing" || status === "ringing" || status === "hangup_requested") {
     return "warning";
   }
   return "neutral";
@@ -1387,12 +1417,16 @@ function callStatusTone(status) {
 
 function formatCallStatus(status) {
   const labels = {
-    initiating: "发起中",
-    dialing: "拨号中",
-    ringing: "振铃",
-    in_progress: "通话中",
+    queued: "排队中",
+    initiating: "呼叫中",
+    dialing: "呼叫中",
+    ringing: "呼叫中",
+    answered: "已接通",
+    in_progress: "已接通",
     hangup_requested: "挂断中",
     ended: "已结束",
+    completed: "已挂机",
+    hangup: "已挂机",
     failed: "失败",
     blocked: "黑名单拦截",
     rate_limited: "频率限制",
@@ -1401,10 +1435,10 @@ function formatCallStatus(status) {
 }
 
 function recordingStatusTone(status) {
-  if (status === "available" || status === "recording") {
+  if (isRecordingCompleted(status)) {
     return "success";
   }
-  if (status === "pending") {
+  if (status === "pending" || status === "recording") {
     return "warning";
   }
   if (status === "failed" || status === "deleted" || status === "expired") {
@@ -1417,10 +1451,25 @@ function formatRecordingStatus(status) {
   const labels = {
     pending: "等待录音",
     recording: "录音中",
-    available: "可播放",
+    completed: "已完成",
+    available: "已完成",
     failed: "失败",
     deleted: "已删除",
     expired: "已过期",
+  };
+  return labels[status] || status;
+}
+
+function isRecordingCompleted(status) {
+  return status === "completed" || status === "available";
+}
+
+function formatTrunkStatus(status) {
+  const labels = {
+    active: "线路正常",
+    inactive: "待探测",
+    error: "线路异常",
+    disabled: "已禁用",
   };
   return labels[status] || status;
 }
