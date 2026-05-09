@@ -1,5 +1,5 @@
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -22,6 +22,31 @@ def find_active_call_by_destination(db: Session, destination_number: str) -> mod
         .order_by(models.OutboundCall.id.desc())
         .first()
     )
+
+
+def expire_stale_active_calls(db: Session) -> int:
+    cutoff = datetime.now(UTC) - timedelta(minutes=max(settings.stale_outbound_call_timeout_minutes, 1))
+    stale_calls = (
+        db.query(models.OutboundCall)
+        .filter(
+            models.OutboundCall.status.in_(ACTIVE_CALL_STATUSES),
+            models.OutboundCall.created_at < cutoff,
+            models.OutboundCall.answered_at.is_(None),
+        )
+        .limit(500)
+        .all()
+    )
+    for call in stale_calls:
+        call.status = "failed"
+        call.failure_reason = call.failure_reason or "呼叫超过等待时间，系统已自动结束，避免占用线路"
+        call.ended_at = call.ended_at or datetime.now(UTC)
+        for recording in call_recordings(db, call):
+            if recording.status in {"pending", "recording"}:
+                recording.status = "failed"
+                recording.failure_reason = recording.failure_reason or "呼叫未接通，未生成有效录音"
+    if stale_calls:
+        db.flush()
+    return len(stale_calls)
 
 
 def complete_call_from_hangup(

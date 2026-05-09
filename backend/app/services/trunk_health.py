@@ -55,15 +55,21 @@ def check_all_trunks(db: Session) -> None:
 def check_trunk_health(db: Session, trunk: models.SipTrunk, client: AsteriskAmiClient | None = None) -> None:
     client = client or AsteriskAmiClient(timeout=4.0)
     now = datetime.now(UTC)
+    endpoint_name = _endpoint_for_trunk(trunk)
     try:
-        endpoint = client.command(f"pjsip show endpoint {trunk.name}")
+        endpoint = client.command(f"pjsip show endpoint {endpoint_name}")
         if "Unable to find" in endpoint or "not found" in endpoint.lower():
-            _set_trunk_health(trunk, "error", f"Asterisk 中找不到 endpoint {trunk.name}", now)
-            logger.error("SIP trunk %s health failed: endpoint not found", trunk.name)
+            _set_trunk_health(trunk, "error", f"Asterisk 中找不到外呼 endpoint {endpoint_name}，请检查 pjsip.conf 并重启 Asterisk", now)
+            logger.error("SIP trunk %s health failed: endpoint %s not found", trunk.name, endpoint_name)
             return
 
-        qualify_output = client.command(f"pjsip send qualify {trunk.name}")
-        message = _summarize_health(endpoint, qualify_output)
+        qualify_output = ""
+        try:
+            qualify_output = client.command(f"pjsip send qualify {endpoint_name}")
+        except AmiError as exc:
+            qualify_output = f"SIP OPTIONS 探测未返回成功：{exc}"
+
+        message = _summarize_health(trunk, endpoint_name, endpoint, qualify_output)
         _set_trunk_health(trunk, "active", message, now)
         logger.info("SIP trunk %s health ok: %s", trunk.name, message)
     except AmiError as exc:
@@ -77,12 +83,22 @@ def _set_trunk_health(trunk: models.SipTrunk, status: str, message: str, checked
     trunk.last_health_message = message[:1000]
 
 
-def _summarize_health(endpoint: str, qualify_output: str) -> str:
+def _endpoint_for_trunk(trunk: models.SipTrunk) -> str:
+    return settings.asterisk_outbound_endpoint.strip() or trunk.name
+
+
+def _summarize_health(trunk: models.SipTrunk, endpoint_name: str, endpoint: str, qualify_output: str) -> str:
+    prefix = ""
+    if endpoint_name != trunk.name:
+        prefix = f"数据库线路 {trunk.name} 使用 Asterisk endpoint {endpoint_name} 外呼；"
     if "Contact:" in endpoint or "outbound-trunk-aor" in endpoint:
-        return "Asterisk endpoint 已加载，已发送 SIP OPTIONS/qualify 探测"
+        suffix = "Asterisk endpoint 已加载，contact 已存在"
+        if qualify_output.strip():
+            suffix = f"{suffix}；{qualify_output.splitlines()[0][:300]}"
+        return f"{prefix}{suffix}"
     if qualify_output.strip():
-        return qualify_output.splitlines()[0][:300]
-    return "Asterisk endpoint 已加载"
+        return f"{prefix}{qualify_output.splitlines()[0][:300]}"
+    return f"{prefix}Asterisk endpoint 已加载"
 
 
 sip_trunk_health_monitor = SipTrunkHealthMonitor()

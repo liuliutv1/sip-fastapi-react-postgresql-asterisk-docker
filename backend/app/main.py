@@ -20,6 +20,7 @@ from app.api import (
 from app.core.config import settings
 from app.db import Base, SessionLocal, engine
 from app.services.ami_event_listener import ami_hangup_event_listener
+from app.services.call_lifecycle import expire_stale_active_calls
 from app.services.provider_defaults import ensure_carrier_sip_trunk
 from app.services.schema_migrations import ensure_runtime_schema
 from app.services.trunk_health import sip_trunk_health_monitor
@@ -34,6 +35,8 @@ async def lifespan(app: FastAPI):
         ensure_runtime_schema(db)
         ensure_default_admin(db)
         ensure_carrier_sip_trunk(db)
+        if expire_stale_active_calls(db):
+            db.commit()
     sip_trunk_health_monitor.start()
     ami_hangup_event_listener.start()
     try:

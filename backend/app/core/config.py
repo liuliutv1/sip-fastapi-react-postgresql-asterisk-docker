@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "Mini SIP Outbound Call Center"
-    app_version: str = "V1.008"
+    app_version: str = "V1.009"
     app_env: str = "development"
     database_url: str = "postgresql+psycopg://callcenter:callcenter@postgres:5432/callcenter"
     cors_origins: str = "http://localhost:3000,http://localhost:8080"
@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     asterisk_sip_port: int = 5060
     asterisk_rtp_start: int = 10000
-    asterisk_rtp_end: int = 10020
+    asterisk_rtp_end: int = 20000
     asterisk_ami_host: str = "asterisk"
     asterisk_ami_port: int = 5038
     asterisk_ami_username: str = "callcenter"

@@ -16,6 +16,7 @@ from app.services.call_lifecycle import (
     TERMINAL_CALL_STATUSES,
     call_recordings,
     complete_call_from_hangup,
+    expire_stale_active_calls,
     finalize_recording,
     find_active_call_by_destination,
 )
@@ -48,7 +49,7 @@ def originate_manual_call(
     db: Session = Depends(get_db),
     current_user: models.AppUser = Depends(get_current_user),
 ):
-    _expire_stale_active_calls(db)
+    expire_stale_active_calls(db)
 
     trunk = (
         db.query(models.SipTrunk)
@@ -257,30 +258,6 @@ def _is_rate_limited(db: Session, current_user: models.AppUser) -> bool:
         .scalar()
     )
     return int(count or 0) >= settings.manual_outbound_rate_limit_count
-
-
-def _expire_stale_active_calls(db: Session) -> None:
-    cutoff = datetime.now(UTC) - timedelta(minutes=max(settings.stale_outbound_call_timeout_minutes, 1))
-    stale_calls = (
-        db.query(models.OutboundCall)
-        .filter(
-            models.OutboundCall.status.in_(ACTIVE_STATUSES),
-            models.OutboundCall.created_at < cutoff,
-            models.OutboundCall.answered_at.is_(None),
-        )
-        .limit(200)
-        .all()
-    )
-    for call in stale_calls:
-        call.status = "failed"
-        call.failure_reason = call.failure_reason or "呼叫超过等待时间，系统已自动结束，避免占用线路"
-        call.ended_at = call.ended_at or datetime.now(UTC)
-        for recording in call_recordings(db, call):
-            if recording.status in {"pending", "recording"}:
-                recording.status = "failed"
-                recording.failure_reason = recording.failure_reason or "呼叫未接通，未生成有效录音"
-    if stale_calls:
-        db.flush()
 
 
 def _get_call_or_404(db: Session, call_id: int, current_user: models.AppUser) -> models.OutboundCall:

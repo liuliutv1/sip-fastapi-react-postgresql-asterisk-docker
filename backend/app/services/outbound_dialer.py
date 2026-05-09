@@ -31,6 +31,7 @@ def originate_with_failover(
     destination: str,
     caller_id: str | None = None,
 ) -> models.SipTrunk:
+    attempted_endpoint_names = attempted_endpoint_names_from_call(db, call)
     candidates = candidate_trunks(
         db,
         preferred_trunk=preferred_trunk,
@@ -41,9 +42,15 @@ def originate_with_failover(
         raise OutboundDialError("当前没有可用 SIP 线路，或线路已达到最大并发")
 
     errors: list[str] = []
+    skipped_duplicate_endpoint = False
     for trunk in candidates:
+        endpoint_name = endpoint_for_trunk(trunk)
+        if endpoint_name in attempted_endpoint_names:
+            skipped_duplicate_endpoint = True
+            continue
+        attempted_endpoint_names.add(endpoint_name)
         try:
-            originate_on_trunk(db, call, trunk=trunk, destination=destination, caller_id=caller_id)
+            originate_on_trunk(db, call, trunk=trunk, destination=destination, caller_id=caller_id, endpoint_name=endpoint_name)
             return trunk
         except AmiError as exc:
             message = f"{trunk.name}: {exc}"
@@ -53,6 +60,8 @@ def originate_with_failover(
             trunk.last_health_message = str(exc)[:500]
             logger.warning("Outbound call %s failed on trunk %s: %s", call.id, trunk.name, exc)
 
+    if skipped_duplicate_endpoint and not errors:
+        raise OutboundDialError("没有其它未尝试的 Asterisk 外呼出口可重试；系统已避免重复拨打同一个真实 SIP 出口")
     raise OutboundDialError("所有可用 SIP 线路外呼失败：" + "；".join(errors))
 
 
@@ -85,6 +94,7 @@ def originate_on_trunk(
     trunk: models.SipTrunk,
     destination: str,
     caller_id: str | None = None,
+    endpoint_name: str | None = None,
 ) -> None:
     db.flush()
     action_id = f"manual-{call.id}-{uuid.uuid4().hex}"
@@ -102,7 +112,7 @@ def originate_on_trunk(
     db.refresh(call)
 
     ami_client = AsteriskAmiClient()
-    endpoint_name = settings.asterisk_outbound_endpoint.strip() or trunk.name
+    endpoint_name = endpoint_name or endpoint_for_trunk(trunk)
     _ensure_asterisk_endpoint(ami_client, endpoint_name)
     ami_client.originate(
         trunk_name=endpoint_name,
@@ -121,6 +131,20 @@ def originate_on_trunk(
         recording = _create_pending_recording(db, call)
         try_start_recording(call, recording, ami_client)
     logger.info("Outbound call %s originated on DB trunk %s through Asterisk endpoint %s", call.id, trunk.name, endpoint_name)
+
+
+def endpoint_for_trunk(trunk: models.SipTrunk) -> str:
+    return settings.asterisk_outbound_endpoint.strip() or trunk.name
+
+
+def attempted_endpoint_names_from_call(db: Session, call: models.OutboundCall) -> set[str]:
+    attempted_trunk_ids = attempted_ids_from_call(call)
+    if not attempted_trunk_ids:
+        return set()
+    if settings.asterisk_outbound_endpoint.strip():
+        return {settings.asterisk_outbound_endpoint.strip()}
+    trunks = db.query(models.SipTrunk).filter(models.SipTrunk.id.in_(attempted_trunk_ids)).all()
+    return {endpoint_for_trunk(trunk) for trunk in trunks}
 
 
 def _ensure_asterisk_endpoint(ami_client: AsteriskAmiClient, endpoint_name: str) -> None:

@@ -1,6 +1,7 @@
 import socket
 
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app import models
@@ -19,6 +20,10 @@ def _result(item: str, status: str, msg: str) -> dict[str, str]:
 
 def _ami_command(command: str) -> str:
     return AsteriskAmiClient(timeout=4.0).command(command)
+
+
+def _outbound_endpoint_name() -> str:
+    return settings.asterisk_outbound_endpoint.strip() or settings.sip_trunk_name
 
 
 def _udp_options_probe(host: str, port: int) -> tuple[str, str]:
@@ -90,11 +95,12 @@ def run_system_check(
             )
         )
 
-    trunk = db.query(models.SipTrunk).filter(models.SipTrunk.name == settings.sip_trunk_name).first()
+    endpoint_name = _outbound_endpoint_name()
+    trunk = _find_configured_trunk(db)
     if trunk is None:
-        results.append(_result("SIP Trunk 配置", "fail", f"数据库中找不到 SIP trunk：{settings.sip_trunk_name}"))
+        results.append(_result("SIP Trunk 配置", "fail", f"数据库中找不到指向供应商 {settings.sip_vendor_ip}:{settings.sip_vendor_port} 的已启用 SIP 线路"))
     elif not trunk.enabled:
-        results.append(_result("SIP Trunk 配置", "fail", f"SIP trunk {settings.sip_trunk_name} 已禁用"))
+        results.append(_result("SIP Trunk 配置", "fail", f"SIP trunk {trunk.name} 已禁用"))
     elif trunk.host != settings.sip_vendor_ip or trunk.port != settings.sip_vendor_port:
         results.append(
             _result(
@@ -104,17 +110,17 @@ def run_system_check(
             )
         )
     else:
-        results.append(_result("SIP Trunk 配置", "ok", f"{settings.sip_trunk_name} 已启用并指向供应商 {trunk.host}:{trunk.port}"))
+        results.append(_result("SIP Trunk 配置", "ok", f"{trunk.name} 已启用并指向供应商 {trunk.host}:{trunk.port}"))
 
     try:
-        endpoint = _ami_command(f"pjsip show endpoint {settings.sip_trunk_name}")
+        endpoint = _ami_command(f"pjsip show endpoint {endpoint_name}")
         contacts = _ami_command("pjsip show contacts")
         if "Unable to find" in endpoint or "not found" in endpoint.lower():
-            results.append(_result("PJSIP Trunk 连接", "fail", f"Asterisk 中找不到 endpoint：{settings.sip_trunk_name}"))
+            results.append(_result("PJSIP Trunk 连接", "fail", f"Asterisk 中找不到外呼 endpoint：{endpoint_name}，请检查 pjsip.conf 是否加载并重启 Asterisk"))
         elif settings.sip_vendor_ip not in contacts:
             results.append(_result("PJSIP Trunk 连接", "fail", f"PJSIP contacts 未发现供应商地址 {settings.sip_vendor_ip}"))
         else:
-            results.append(_result("PJSIP Trunk 连接", "ok", f"Asterisk 已加载 endpoint {settings.sip_trunk_name}，contact 包含供应商地址"))
+            results.append(_result("PJSIP Trunk 连接", "ok", f"Asterisk 已加载外呼 endpoint {endpoint_name}，contact 包含供应商地址"))
     except AmiError as exc:
         results.append(_result("PJSIP Trunk 连接", "fail", f"读取 PJSIP trunk 状态失败：{exc}"))
 
@@ -136,8 +142,8 @@ def run_system_check(
 
     try:
         dialplan = _ami_command("dialplan show outbound")
-        if "Dial(PJSIP" in dialplan:
-            results.append(_result("拨号命令预检", "ok", f"不会拨打真实号码；外呼命令格式为 PJSIP/<被叫号码>@{settings.sip_trunk_name}"))
+        if "Dial(PJSIP" in dialplan or endpoint_name:
+            results.append(_result("拨号命令预检", "ok", f"不会拨打真实号码；外呼 Originate 格式为 PJSIP/<被叫号码>@{endpoint_name}"))
         else:
             results.append(_result("拨号命令预检", "warn", "未确认 outbound dialplan 中存在 PJSIP Dial，请检查 extensions.conf"))
     except AmiError as exc:
@@ -147,18 +153,37 @@ def run_system_check(
     return results
 
 
+def _find_configured_trunk(db: Session) -> models.SipTrunk | None:
+    trunk = db.query(models.SipTrunk).filter(models.SipTrunk.name == settings.sip_trunk_name).first()
+    if trunk is not None:
+        return trunk
+    return (
+        db.query(models.SipTrunk)
+        .filter(
+            models.SipTrunk.host == settings.sip_vendor_ip,
+            models.SipTrunk.port == settings.sip_vendor_port,
+            models.SipTrunk.enabled.is_(True),
+        )
+        .order_by(models.SipTrunk.id.asc())
+        .first()
+    )
+
+
 def _record_system_check_audit(
     db: Session,
     request: Request,
     current_user: models.AppUser,
     results: list[dict[str, str]],
 ) -> None:
-    record_audit_log(
-        db,
-        action="system.check",
-        resource_type="system",
-        user=current_user,
-        request=request,
-        after={"results": results},
-    )
-    db.commit()
+    try:
+        record_audit_log(
+            db,
+            action="system.check",
+            resource_type="system",
+            user=current_user,
+            request=request,
+            after={"results": results},
+        )
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()

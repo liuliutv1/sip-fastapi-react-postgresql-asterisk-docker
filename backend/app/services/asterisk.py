@@ -250,9 +250,10 @@ class AsteriskAmiClient:
 
 
 def build_originate_preview(destination: str) -> dict[str, str]:
+    trunk_name = settings.asterisk_outbound_endpoint.strip() or "outbound-trunk"
     return {
         "action": "Originate",
-        "channel": f"PJSIP/{destination}@outbound-trunk",
+        "channel": f"PJSIP/{destination}@{trunk_name}",
         "application": "Wait",
         "data": str(settings.asterisk_outbound_hold_seconds),
         "caller_id": settings.app_name,
