@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -9,6 +11,7 @@ from app.db import get_db
 from app.services.audit import record_audit_log
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def serialize_trunk(trunk: models.SipTrunk) -> schemas.SipTrunkRead:
@@ -79,15 +82,7 @@ def create_sip_trunk(
     db.add(trunk)
     try:
         db.flush()
-        record_audit_log(
-            db,
-            action="sip_trunk.create",
-            resource_type="sip_trunk",
-            resource_id=trunk.id,
-            user=current_user,
-            request=request,
-            after=trunk_audit_dict(trunk),
-        )
+        audit_after = trunk_audit_dict(trunk)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -97,6 +92,14 @@ def create_sip_trunk(
         raise HTTPException(status_code=500, detail="保存 SIP 线路失败，请检查数据库迁移或查看后端日志") from exc
 
     db.refresh(trunk)
+    _safe_audit(
+        db,
+        action="sip_trunk.create",
+        resource_id=trunk.id,
+        user=current_user,
+        request=request,
+        after=audit_after,
+    )
     return serialize_trunk(trunk)
 
 
@@ -118,16 +121,7 @@ def update_sip_trunk(
 
     try:
         db.flush()
-        record_audit_log(
-            db,
-            action="sip_trunk.update",
-            resource_type="sip_trunk",
-            resource_id=trunk.id,
-            user=current_user,
-            request=request,
-            before=before,
-            after=trunk_audit_dict(trunk),
-        )
+        audit_after = trunk_audit_dict(trunk)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -137,6 +131,15 @@ def update_sip_trunk(
         raise HTTPException(status_code=500, detail="保存 SIP 线路失败，请检查数据库迁移或查看后端日志") from exc
 
     db.refresh(trunk)
+    _safe_audit(
+        db,
+        action="sip_trunk.update",
+        resource_id=trunk.id,
+        user=current_user,
+        request=request,
+        before=before,
+        after=audit_after,
+    )
     return serialize_trunk(trunk)
 
 
@@ -160,6 +163,33 @@ def delete_sip_trunk(
         before=before,
     )
     db.commit()
+
+
+def _safe_audit(
+    db: Session,
+    *,
+    action: str,
+    resource_id: int,
+    user: models.AppUser,
+    request: Request,
+    before: dict | None = None,
+    after: dict | None = None,
+) -> None:
+    try:
+        record_audit_log(
+            db,
+            action=action,
+            resource_type="sip_trunk",
+            resource_id=resource_id,
+            user=user,
+            request=request,
+            before=before,
+            after=after,
+        )
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.warning("SIP trunk audit failed for %s %s: %s", action, resource_id, exc)
 
 
 def _get_trunk_or_404(db: Session, trunk_id: int) -> models.SipTrunk:

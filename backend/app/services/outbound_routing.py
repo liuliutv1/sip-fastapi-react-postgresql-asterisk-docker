@@ -56,14 +56,14 @@ def candidate_trunks(
         db.query(models.SipTrunk)
         .filter(
             models.SipTrunk.enabled.is_(True),
-            models.SipTrunk.status != "error",
+            models.SipTrunk.status != "disabled",
         )
         .order_by(health_order, models.SipTrunk.id.asc())
         .all()
     )
 
     ordered: list[models.SipTrunk] = []
-    if preferred_trunk and preferred_trunk.enabled and preferred_trunk.status != "error":
+    if preferred_trunk and preferred_trunk.enabled and preferred_trunk.status != "disabled":
         ordered.append(preferred_trunk)
     ordered.extend(trunk for trunk in trunks if trunk.id not in {item.id for item in ordered})
 

@@ -27,7 +27,7 @@ services:
     restart: unless-stopped
     environment:
       APP_NAME: ${APP_NAME:-Mini SIP Outbound Call Center}
-      APP_VERSION: ${APP_VERSION:-V1.005}
+      APP_VERSION: ${APP_VERSION:-V1.006}
       APP_ENV: ${APP_ENV:-development}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://callcenter:callcenter@postgres:5432/callcenter}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:8080}
@@ -83,7 +83,7 @@ services:
       context: ./frontend
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
-        VITE_APP_VERSION: ${APP_VERSION:-V1.005}
+        VITE_APP_VERSION: ${APP_VERSION:-V1.006}
         NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}
     container_name: sipcc-frontend
     restart: unless-stopped

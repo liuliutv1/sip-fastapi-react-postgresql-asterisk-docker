@@ -24,7 +24,7 @@ import { useEffect, useMemo, useState } from "react";
 import SystemCheck from "./SystemCheck";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || "V1.005";
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || "V1.006";
 const TOKEN_STORAGE_KEY = "sipcc_access_token";
 
 const createEmptyTrunkForm = () => ({
@@ -178,6 +178,18 @@ function App() {
     }, 5000);
     return () => window.clearInterval(timer);
   }, [token, activeView]);
+
+  useEffect(() => {
+    if (manualCallForm.sip_trunk_id || sipTrunks.length === 0) {
+      return;
+    }
+    const trunk = preferredManualTrunk(sipTrunks);
+    if (trunk) {
+      setManualCallForm((current) => (
+        current.sip_trunk_id ? current : { ...current, sip_trunk_id: String(trunk.id) }
+      ));
+    }
+  }, [manualCallForm.sip_trunk_id, sipTrunks]);
 
   function saveToken(nextToken) {
     setToken(nextToken);
@@ -838,7 +850,7 @@ function renderManualCalls(props) {
     saveBlacklist,
     deleteBlacklist,
   } = props;
-  const enabledTrunks = sipTrunks.filter((trunk) => trunk.enabled);
+  const enabledTrunks = sortManualTrunks(sipTrunks.filter((trunk) => trunk.enabled));
   const trunkNameById = new Map(sipTrunks.map((item) => [item.id, item.name]));
 
   return (
@@ -1393,6 +1405,23 @@ function validateTrunkForm(form) {
     return "最大并发必须大于 0";
   }
   return "";
+}
+
+function preferredManualTrunk(trunks) {
+  const enabled = trunks.filter((trunk) => trunk.enabled);
+  return enabled.find((trunk) => trunk.name === "outbound-trunk") || enabled[0] || null;
+}
+
+function sortManualTrunks(trunks) {
+  return [...trunks].sort((left, right) => {
+    if (left.name === "outbound-trunk") {
+      return -1;
+    }
+    if (right.name === "outbound-trunk") {
+      return 1;
+    }
+    return left.id - right.id;
+  });
 }
 
 function isActiveCall(status) {
