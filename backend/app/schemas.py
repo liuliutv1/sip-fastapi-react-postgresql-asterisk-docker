@@ -142,6 +142,14 @@ class SipTrunkCreate(SipTrunkBase):
 
     model_config = ConfigDict(populate_by_name=True)
 
+    @field_validator("sip_password", mode="before")
+    @classmethod
+    def empty_password_to_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = str(value).strip()
+        return stripped or None
+
 
 class SipTrunkUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
@@ -184,6 +192,14 @@ class SipTrunkUpdate(BaseModel):
     _validate_host_like = field_validator("host", "from_domain")(SipTrunkBase.validate_host_like)
     _validate_outbound_proxy = field_validator("outbound_proxy")(SipTrunkBase.validate_outbound_proxy)
     _validate_codecs = field_validator("codecs")(SipTrunkBase.validate_codecs)
+
+    @field_validator("sip_password", mode="before")
+    @classmethod
+    def empty_password_to_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = str(value).strip()
+        return stripped or None
 
     @model_validator(mode="after")
     def require_changes(self):

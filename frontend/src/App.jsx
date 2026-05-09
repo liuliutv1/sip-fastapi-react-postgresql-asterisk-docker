@@ -24,7 +24,7 @@ import { useEffect, useMemo, useState } from "react";
 import SystemCheck from "./SystemCheck";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || "V1.002";
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || "V1.003";
 const TOKEN_STORAGE_KEY = "sipcc_access_token";
 
 const createEmptyTrunkForm = () => ({
@@ -1372,8 +1372,10 @@ function serializeTrunkForm(form, isEdit) {
       .filter(Boolean),
   };
 
-  if (isEdit && !payload.sip_password) {
+  if (!payload.sip_password?.trim()) {
     delete payload.sip_password;
+  } else {
+    payload.sip_password = payload.sip_password.trim();
   }
 
   return payload;
