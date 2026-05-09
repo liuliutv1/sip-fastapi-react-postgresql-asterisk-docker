@@ -31,7 +31,12 @@ def originate_with_failover(
     destination: str,
     caller_id: str | None = None,
 ) -> models.SipTrunk:
-    candidates = candidate_trunks(db, preferred_trunk=preferred_trunk, exclude_ids=attempted_ids_from_call(call))
+    candidates = candidate_trunks(
+        db,
+        preferred_trunk=preferred_trunk,
+        exclude_ids=attempted_ids_from_call(call),
+        current_call_id=call.id,
+    )
     if not candidates:
         raise OutboundDialError("当前没有可用 SIP 线路，或线路已达到最大并发")
 
