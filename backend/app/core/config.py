@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "Mini SIP Outbound Call Center"
-    app_version: str = "V1.007"
+    app_version: str = "V1.008"
     app_env: str = "development"
     database_url: str = "postgresql+psycopg://callcenter:callcenter@postgres:5432/callcenter"
     cors_origins: str = "http://localhost:3000,http://localhost:8080"
@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     asterisk_ami_port: int = 5038
     asterisk_ami_username: str = "callcenter"
     asterisk_ami_password: str = "callcenter"
+    asterisk_outbound_endpoint: str = "outbound-trunk"
     asterisk_ami_event_listener_enabled: bool = True
     asterisk_originate_timeout_ms: int = 30000
     asterisk_outbound_hold_seconds: int = 7200
@@ -34,6 +35,7 @@ class Settings(BaseSettings):
     sip_trunk_name: str = "outbound-trunk"
     manual_outbound_rate_limit_count: int = 5
     manual_outbound_rate_limit_window_seconds: int = 60
+    stale_outbound_call_timeout_minutes: int = 10
     recordings_local_dir: str = "/recordings"
     asterisk_recordings_dir: str = "/recordings"
     recordings_storage_backend: str = "local"

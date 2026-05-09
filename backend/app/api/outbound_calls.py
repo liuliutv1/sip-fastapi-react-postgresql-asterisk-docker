@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app import models, schemas
@@ -48,6 +48,8 @@ def originate_manual_call(
     db: Session = Depends(get_db),
     current_user: models.AppUser = Depends(get_current_user),
 ):
+    _expire_stale_active_calls(db)
+
     trunk = (
         db.query(models.SipTrunk)
         .filter(models.SipTrunk.id == payload.sip_trunk_id, models.SipTrunk.enabled.is_(True))
@@ -94,6 +96,8 @@ def originate_manual_call(
 
     try:
         call = _create_call(db, current_user=current_user, payload=payload, status_value="initiating")
+        db.commit()
+        db.refresh(call)
     except IntegrityError as exc:
         db.rollback()
         if "uq_outbound_calls_active_destination" in str(exc.orig):
@@ -113,9 +117,9 @@ def originate_manual_call(
         call.ended_at = datetime.now(UTC)
 
     db.flush()
-    _audit_call(db, request, current_user, "outbound_call.originate", call)
     db.commit()
     db.refresh(call)
+    _safe_audit_call(db, request, current_user, "outbound_call.originate", call)
     return call
 
 
@@ -255,6 +259,30 @@ def _is_rate_limited(db: Session, current_user: models.AppUser) -> bool:
     return int(count or 0) >= settings.manual_outbound_rate_limit_count
 
 
+def _expire_stale_active_calls(db: Session) -> None:
+    cutoff = datetime.now(UTC) - timedelta(minutes=max(settings.stale_outbound_call_timeout_minutes, 1))
+    stale_calls = (
+        db.query(models.OutboundCall)
+        .filter(
+            models.OutboundCall.status.in_(ACTIVE_STATUSES),
+            models.OutboundCall.created_at < cutoff,
+            models.OutboundCall.answered_at.is_(None),
+        )
+        .limit(200)
+        .all()
+    )
+    for call in stale_calls:
+        call.status = "failed"
+        call.failure_reason = call.failure_reason or "呼叫超过等待时间，系统已自动结束，避免占用线路"
+        call.ended_at = call.ended_at or datetime.now(UTC)
+        for recording in call_recordings(db, call):
+            if recording.status in {"pending", "recording"}:
+                recording.status = "failed"
+                recording.failure_reason = recording.failure_reason or "呼叫未接通，未生成有效录音"
+    if stale_calls:
+        db.flush()
+
+
 def _get_call_or_404(db: Session, call_id: int, current_user: models.AppUser) -> models.OutboundCall:
     query = db.query(models.OutboundCall).filter(models.OutboundCall.id == call_id)
     if not current_user.is_admin:
@@ -316,3 +344,17 @@ def _audit_call(
         request=request,
         after=schemas.OutboundCallRead.model_validate(call).model_dump(mode="json"),
     )
+
+
+def _safe_audit_call(
+    db: Session,
+    request: Request,
+    current_user: models.AppUser,
+    action: str,
+    call: models.OutboundCall,
+) -> None:
+    try:
+        _audit_call(db, request, current_user, action, call)
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()

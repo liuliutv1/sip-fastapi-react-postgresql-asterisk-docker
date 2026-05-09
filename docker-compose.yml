@@ -31,7 +31,7 @@ services:
       exec uvicorn app.main:app --host 0.0.0.0 --port 8000"
     environment:
       APP_NAME: ${APP_NAME:-Mini SIP Outbound Call Center}
-      APP_VERSION: ${APP_VERSION:-V1.007}
+      APP_VERSION: ${APP_VERSION:-V1.008}
       APP_ENV: ${APP_ENV:-development}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://callcenter:callcenter@postgres:5432/callcenter}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:8080}
@@ -46,6 +46,7 @@ services:
       ASTERISK_AMI_PORT: ${ASTERISK_AMI_PORT:-5038}
       ASTERISK_AMI_USERNAME: ${ASTERISK_AMI_USERNAME:-callcenter}
       ASTERISK_AMI_PASSWORD: ${ASTERISK_AMI_PASSWORD:-callcenter}
+      ASTERISK_OUTBOUND_ENDPOINT: ${ASTERISK_OUTBOUND_ENDPOINT:-outbound-trunk}
       ASTERISK_AMI_EVENT_LISTENER_ENABLED: ${ASTERISK_AMI_EVENT_LISTENER_ENABLED:-true}
       ASTERISK_ORIGINATE_TIMEOUT_MS: ${ASTERISK_ORIGINATE_TIMEOUT_MS:-30000}
       ASTERISK_OUTBOUND_HOLD_SECONDS: ${ASTERISK_OUTBOUND_HOLD_SECONDS:-7200}
@@ -57,6 +58,7 @@ services:
       SIP_TRUNK_NAME: ${SIP_TRUNK_NAME:-outbound-trunk}
       MANUAL_OUTBOUND_RATE_LIMIT_COUNT: ${MANUAL_OUTBOUND_RATE_LIMIT_COUNT:-5}
       MANUAL_OUTBOUND_RATE_LIMIT_WINDOW_SECONDS: ${MANUAL_OUTBOUND_RATE_LIMIT_WINDOW_SECONDS:-60}
+      STALE_OUTBOUND_CALL_TIMEOUT_MINUTES: ${STALE_OUTBOUND_CALL_TIMEOUT_MINUTES:-10}
       RECORDINGS_LOCAL_DIR: ${RECORDINGS_LOCAL_DIR:-/recordings}
       ASTERISK_RECORDINGS_DIR: ${ASTERISK_RECORDINGS_DIR:-/recordings}
       RECORDINGS_STORAGE_BACKEND: ${RECORDINGS_STORAGE_BACKEND:-local}
@@ -87,7 +89,7 @@ services:
       context: ./frontend
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
-        VITE_APP_VERSION: ${APP_VERSION:-V1.007}
+        VITE_APP_VERSION: ${APP_VERSION:-V1.008}
         NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}
     container_name: sipcc-frontend
     restart: unless-stopped

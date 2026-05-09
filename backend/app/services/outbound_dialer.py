@@ -98,10 +98,14 @@ def originate_on_trunk(
     call.status = "initiating"
     mark_trunk_attempt(call, trunk)
     db.flush()
+    db.commit()
+    db.refresh(call)
 
     ami_client = AsteriskAmiClient()
+    endpoint_name = settings.asterisk_outbound_endpoint.strip() or trunk.name
+    _ensure_asterisk_endpoint(ami_client, endpoint_name)
     ami_client.originate(
-        trunk_name=trunk.name,
+        trunk_name=endpoint_name,
         destination=destination,
         caller_id=effective_caller_id,
         action_id=action_id,
@@ -109,12 +113,21 @@ def originate_on_trunk(
     )
 
     now = datetime.now(UTC)
-    call.status = "dialing"
-    call.started_at = call.started_at or now
-    call.failure_reason = None
-    recording = _create_pending_recording(db, call)
-    try_start_recording(call, recording, ami_client)
-    logger.info("Outbound call %s originated on trunk %s", call.id, trunk.name)
+    db.refresh(call)
+    if call.status not in {"completed", "hangup", "failed", "blocked", "rate_limited"}:
+        call.status = "dialing"
+        call.started_at = call.started_at or now
+        call.failure_reason = None
+        recording = _create_pending_recording(db, call)
+        try_start_recording(call, recording, ami_client)
+    logger.info("Outbound call %s originated on DB trunk %s through Asterisk endpoint %s", call.id, trunk.name, endpoint_name)
+
+
+def _ensure_asterisk_endpoint(ami_client: AsteriskAmiClient, endpoint_name: str) -> None:
+    output = ami_client.command(f"pjsip show endpoint {endpoint_name}")
+    lowered = output.lower()
+    if "unable to find" in lowered or "not found" in lowered:
+        raise AmiError(f"Asterisk 未加载外呼 endpoint {endpoint_name}，请检查 pjsip.conf 并重启 asterisk 容器")
 
 
 def _create_pending_recording(db: Session, call: models.OutboundCall) -> models.CallRecording:
