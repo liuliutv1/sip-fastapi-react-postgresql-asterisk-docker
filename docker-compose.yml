@@ -27,7 +27,7 @@ services:
     restart: unless-stopped
     environment:
       APP_NAME: ${APP_NAME:-Mini SIP Outbound Call Center}
-      APP_VERSION: ${APP_VERSION:-V1.001}
+      APP_VERSION: ${APP_VERSION:-V1.002}
       APP_ENV: ${APP_ENV:-development}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://callcenter:callcenter@postgres:5432/callcenter}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:8080}
@@ -49,6 +49,7 @@ services:
       SIP_TRUNK_HEALTH_CHECK_INTERVAL_SECONDS: ${SIP_TRUNK_HEALTH_CHECK_INTERVAL_SECONDS:-60}
       SIP_VENDOR_IP: ${SIP_VENDOR_IP:-218.245.102.33}
       SIP_VENDOR_PORT: ${SIP_VENDOR_PORT:-6876}
+      ALIYUN_PUBLIC_IP: ${ALIYUN_PUBLIC_IP:-8.163.96.127}
       SIP_TRUNK_NAME: ${SIP_TRUNK_NAME:-outbound-trunk}
       MANUAL_OUTBOUND_RATE_LIMIT_COUNT: ${MANUAL_OUTBOUND_RATE_LIMIT_COUNT:-5}
       MANUAL_OUTBOUND_RATE_LIMIT_WINDOW_SECONDS: ${MANUAL_OUTBOUND_RATE_LIMIT_WINDOW_SECONDS:-60}
@@ -82,7 +83,7 @@ services:
       context: ./frontend
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
-        VITE_APP_VERSION: ${APP_VERSION:-V1.001}
+        VITE_APP_VERSION: ${APP_VERSION:-V1.002}
         NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}
     container_name: sipcc-frontend
     restart: unless-stopped

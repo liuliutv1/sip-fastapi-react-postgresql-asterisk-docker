@@ -24,7 +24,7 @@ import { useEffect, useMemo, useState } from "react";
 import SystemCheck from "./SystemCheck";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || "V1.001";
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || "V1.002";
 const TOKEN_STORAGE_KEY = "sipcc_access_token";
 
 const createEmptyTrunkForm = () => ({

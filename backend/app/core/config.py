@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "Mini SIP Outbound Call Center"
-    app_version: str = "V1.001"
+    app_version: str = "V1.002"
     app_env: str = "development"
     database_url: str = "postgresql+psycopg://callcenter:callcenter@postgres:5432/callcenter"
     cors_origins: str = "http://localhost:3000,http://localhost:8080"
@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     sip_trunk_health_check_interval_seconds: int = 60
     sip_vendor_ip: str = "218.245.102.33"
     sip_vendor_port: int = 6876
+    aliyun_public_ip: str = "8.163.96.127"
     sip_trunk_name: str = "outbound-trunk"
     manual_outbound_rate_limit_count: int = 5
     manual_outbound_rate_limit_window_seconds: int = 60

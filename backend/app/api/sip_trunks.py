@@ -32,6 +32,8 @@ def serialize_trunk(trunk: models.SipTrunk) -> schemas.SipTrunkRead:
         enabled=trunk.enabled,
         status=trunk.status,
         password_configured=bool(trunk.password_encrypted),
+        last_health_checked_at=trunk.last_health_checked_at,
+        last_health_message=trunk.last_health_message,
         created_at=trunk.created_at,
         updated_at=trunk.updated_at,
     )
