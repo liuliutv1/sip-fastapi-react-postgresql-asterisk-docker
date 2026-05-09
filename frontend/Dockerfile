@@ -3,7 +3,9 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 ARG VITE_API_BASE_URL=/api
+ARG NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+ENV NPM_CONFIG_REGISTRY=$NPM_CONFIG_REGISTRY
 
 COPY package*.json ./
 RUN npm ci
